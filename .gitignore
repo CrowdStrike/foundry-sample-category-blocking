@@ -1,0 +1,9 @@
+.idea/
+.DS_Store
+
+# For Python functions
+.venv/
+__pycache__/
+
+# For Go functions
+go.sum

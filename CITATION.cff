@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: 'CrowdStrike Foundry Sample App - $SAMPLE_NAME'
+message: >-
+  If you use this software, and wish to cite the origins,
+  please use metadata from this file.
+type: software
+authors:
+  - given-names:
+    family-names: CrowdStrike
+    email: oss-questions@crowdstrike.com
+repository-code: 'https://github.com/CrowdStrike/$REPOSITORY_NAME'
+url: 'https://www.crowdstrike.com'
+abstract: >-
+  The CrowdStrike Foundry Sample App - $SAMPLE_NAME
+  is a community-driven, open source project designed
+  to illustrate creating apps with CrowdStrike Foundry.
+keywords:
+  - crowdstrike
+  - oauth2
+  - crowdstrike-foundry
+  - python
+  - windows
+  - linux
+  - mac
+license: MIT
