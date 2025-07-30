@@ -18,7 +18,7 @@
     "react-router-dom": "7.6.1"
   },
   "devDependencies": {
-    "@babel/core": "7.27.3",
+    "@babel/core": "7.28.0",
     "@babel/preset-react": "7.27.1",
     "@rollup/plugin-babel": "6.0.4",
     "@rollup/plugin-commonjs": "28.0.6",
