@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft-07/schema",
+    "x-cs-indexable-fields": [
+        { "field": "/category_name", "type": "string", "fql_name": "category_name" },
+        { "field": "/rule_group_id", "type": "string", "fql_name": "rule_group_id" },
+        { "field": "/host_group_id", "type": "string", "fql_name": "host_group_id" }
+    ],
+    "type": "object",
+    "properties": {
+        "category_name": {
+            "type": "string",
+            "description": "Name of the category"
+        },
+        "rule_group_id": {
+            "type": "string",
+            "description": "ID of the rule group"
+        },
+        "rule_group_name": {
+            "type": "string",
+            "description": "Name of the rule group"
+        },
+        "host_group_id": {
+            "type": "string",
+            "description": "ID of the host group"
+        },
+        "host_group_name": {
+            "type": "string",
+            "description": "Name of the host group"
+        },
+        "policy_name": {
+            "type": "string",
+            "description": "Name of the policy"
+        },
+        "created_at": {
+            "type": "string",
+            "description": "Creation timestamp"
+        },
+        "created_by": {
+            "type": "string",
+            "description": "Username of creator"
+        }
+    },
+    "required": ["category_name", "rule_group_id", "host_group_id"]
+}

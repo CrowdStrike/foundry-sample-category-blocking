@@ -1,0 +1,41 @@
+name: Rebuild sample UI
+on:
+  schedule:
+    - cron: 0 0 * * 2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    permissions:
+      contents: write # for peter-evans/create-pull-request to create branch
+      pull-requests: write # for peter-evans/create-pull-request to create a PR
+    name: Rebuild
+    if: github.repository == 'CrowdStrike/foundry-sample-url-filtering'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ui/pages/reactblocking
+      - name: Build React app
+        run: npm run build
+        working-directory: ui/pages/reactblocking
+      - name: Create commit
+        run: |
+          git add .
+          git commit -a -m "Rebuild UI with latest dependencies" || true
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'Rebuild with latest dependencies'
+          title: 'Rebuild with latest dependencies'
+          body: Weekly build with latest dependencies.
+          labels: 'dependencies'

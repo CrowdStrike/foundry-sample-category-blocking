@@ -1,8 +1,8 @@
 ![CrowdStrike Falcon](/images/cs-logo.png?raw=true)
 
-# $SAMPLE_NAME sample Foundry app
+# reactblocking sample Foundry app
 
-The $SAMPLE_NAME sample Foundry app is a community-driven, open source project which serves as an example of an app which can be built using CrowdStrike's Foundry ecosystem. `$REPOSITORY_NAME` is an open source project, not a CrowdStrike product. As such, it carries no formal support, expressed or implied.
+The reactblocking sample Foundry app is a community-driven, open source project which serves as an example of an app which can be built using CrowdStrike's Foundry ecosystem. `foundry-sample-url-filtering` is an open source project, not a CrowdStrike product. As such, it carries no formal support, expressed or implied.
 
 This app is one of several App Templates included in Foundry that you can use to jumpstart your development. It comes complete with a set of preconfigured capabilities aligned to its business purpose. Deploy this app from the Templates page with a single click in the Foundry UI, or create an app from this template using the CLI.
 
@@ -11,7 +11,8 @@ This app is one of several App Templates included in Foundry that you can use to
 
 ## Description
 
-_A description of this app's use case and what it does._
+A comprehensive URL filtering solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines URL blocking workflows while providing valuable insights into blocking patterns.
+
 
 ## Prerequisites
 
@@ -49,11 +50,11 @@ Run `foundry version` to verify it's installed correctly.
 
 ## Getting Started
 
-Clone this sample to your local system, or [download as a zip file](https://github.com/CrowdStrike/$REPOSITORY_NAME/archive/refs/heads/main.zip) and import it into Foundry.
+Clone this sample to your local system, or [download as a zip file](https://github.com/CrowdStrike/foundry-sample-url-filtering/archive/refs/heads/main.zip) and import it into Foundry.
 
 ```shell
-git clone https://github.com/CrowdStrike/$REPOSITORY_NAME
-cd $REPOSITORY_NAME
+git clone https://github.com/CrowdStrike/foundry-sample-url-filtering
+cd foundry-sample-url-filtering
 ```
 
 Log in to Foundry:
@@ -88,7 +89,27 @@ Next, go to **Foundry** > **App catalog**, find your app, and install it. Go to 
 
 ## About this sample app
 
-_Describe your app and its components._
+This application demonstrates advanced usage of Functions,Collections and UI Experience in Falcon Foundry, implementing several key capabilities for URL filtering and firewall management:
+
+Python functions:
+reactblock: Fetches host groups information using
+categories: Fetches categories using FalconPy from collections
+create-rule: Create Firewall management blocking rule with selected category using FalconPy
+domain-analytics: Fetches domain analytics information
+import-csv: Transforms category domain csv into collections
+update-rules:Adds updated urls in existing rulegroups using relationship collection
+
+Collections:
+domain: Collection store for urls and category mapping
+relationship: Collection which store relationship information about host groups, rulegroups and categories
+
+Foundry-JS
+DomainAnalytics: Creates domain analytics using react-plotly.
+FirewallRules: Allows to update existing url categories information in collection
+Relationship: Create relationship graph of data existing in relationship collection
+
+A UI Page on dedicated for this application
+
 
 ## Foundry resources
 

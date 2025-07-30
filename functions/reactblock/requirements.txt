@@ -1,0 +1,3 @@
+crowdstrike-foundry-function==1.1.1
+crowdstrike-falconpy
+pytz

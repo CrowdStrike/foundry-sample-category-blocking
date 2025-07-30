@@ -1,0 +1,173 @@
+name: reactblocking
+description: react test
+logo: ""
+vendor: ""
+vendor_products: []
+use_case: Endpoint security
+manifest_version: "2023-05-09"
+ignored:
+  - ui/(extensions|pages)/[^\/]*?/public
+  - ui/(extensions|pages)/[^\/]*?/index.html
+  - ui/(extensions|pages)/[^\/]*?/favicon.ico
+  - ui/(extensions|pages)/.*?/node_modules
+  - ui/(extensions|pages)/.*?/config
+  - ui/(extensions|pages)/.*?/\.gitignore
+  - ui/(extensions|pages)/.*?/package\.json
+  - ui/(extensions|pages)/.*?/tsconfig\.json
+  - ui/(extensions|pages)/.*?/tsconfig\..*\.json
+  - ui/(extensions|pages)/.*?/.*?\.(md|log|lock|cjs)
+ui:
+  homepage: pages.reactblocking
+  extensions: []
+  pages:
+    reactblocking:
+      name: reactblocking
+      description: react blocking test
+      path: ui/pages/reactblocking/src/dist
+      entrypoint: ui/pages/reactblocking/src/dist/index.html
+      content_security_policy:
+        connect-src: []
+        style-src: []
+        style-src-elem: []
+        script-src: []
+        form-action: []
+        img-src: []
+        media-src: []
+        object-src: []
+      permissions: []
+  dashboards: {}
+  navigation:
+    links:
+      - path: /
+        name: URL Blocking
+        permissions: []
+        ref: pages.reactblocking
+api_integrations: []
+rtr_scripts: []
+collections:
+  - name: domain
+    description: ""
+    schema: collections/domain.json
+    permissions: []
+    workflow_integration:
+      system_action: true
+      tags: []
+  - name: relationship
+    description: to have relationship data
+    schema: collections/relationship.json
+    permissions: []
+    workflow_integration:
+      system_action: true
+      tags: []
+auth:
+  scopes:
+    - firewall-management:read
+    - firewall-management:write
+    - host-group:read
+    - host-group:write
+    - devices:read
+    - devices:write
+  permissions: {}
+  roles: []
+functions:
+  - name: reactblock
+    config: null
+    description: react block
+    path: functions/reactblock
+    environment_variables: {}
+    handlers:
+      - name: reactblock
+        description: react block
+        method: GET
+        api_path: /reactblock
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: categories
+        description: get categories
+        method: GET
+        api_path: /categories
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: create-rule
+        description: Create blocking rule
+        method: POST
+        api_path: /create-rule
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: domain-analytics
+        description: Create blocking rule
+        method: GET
+        api_path: /domain-analytics
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: import_csv_handler
+        description: Import CSV data into Collections
+        method: POST
+        api_path: /import-csv
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: list-categories
+        description: Import CSV data into Collections
+        method: GET
+        api_path: /list-categories
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: search-categories
+        description: Import CSV data into Collections
+        method: GET
+        api_path: /search-categories
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: manage-categories
+        description: Import CSV data into Collections
+        method: POST
+        api_path: /manage-category
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: manage-relationship
+        description: Import CSV data into Collections
+        method: POST
+        api_path: /manage-relationship
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: get-relationship
+        description: Import CSV data into Collections
+        method: GET
+        api_path: /get-relationship
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: update-rules
+        description: update rules by creating new rule with updates urls
+        method: POST
+        api_path: /update-rules
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+    language: python
+workflows: []
+parsers: []
+logscale:
+  saved_searches: []
+lookup_files: []
+docs: {}

@@ -2,7 +2,7 @@
 
 # Security Policy
 
-This document outlines security policy and procedures for the CrowdStrike `$REPOSITORY_NAME` project.
+This document outlines security policy and procedures for the CrowdStrike `foundry-sample-url-filtering` project.
 
 ## Reporting a potential security vulnerability
 
@@ -12,8 +12,8 @@ As mentioned in [SUPPORT](SUPPORT.md), this project is an open source project, n
 Please report suspected security vulnerabilities by:
 
 + Submitting
-  a [bug](https://github.com/CrowdStrike/$REPOSITORY_NAME/issues/new?assignees=&labels=bug+%3Abug%3A&template=bug_report.md&title=%5B+BUG+%5D+...).
-+ Submitting a [pull request](https://github.com/CrowdStrike/$REPOSITORY_NAME/pulls) to potentially resolve the issue. (New
+  a [bug](https://github.com/CrowdStrike/foundry-sample-url-filtering/issues/new?assignees=&labels=bug+%3Abug%3A&template=bug_report.md&title=%5B+BUG+%5D+...).
++ Submitting a [pull request](https://github.com/CrowdStrike/foundry-sample-url-filtering/pulls) to potentially resolve the issue. (New
   contributors: please review the content
   located [here](CONTRIBUTING.md).)
 + Sending an email to __oss-security@crowdstrike.com__.

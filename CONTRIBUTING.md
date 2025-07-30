@@ -6,7 +6,7 @@
 
 ![Hollywood Adversaries](/images/hollywood-adversaries.jpg?raw=true)
 
-Please review this document for details regarding getting started with your first contribution, packages you'll need to install as a developer, and our Pull Request process. If you have any questions, please let us know by posting your question as an [issue](https://github.com/CrowdStrike/$REPOSITORY_NAME/issues).
+Please review this document for details regarding getting started with your first contribution, packages you'll need to install as a developer, and our Pull Request process. If you have any questions, please let us know by posting your question as an [issue](https://github.com/CrowdStrike/foundry-sample-url-filtering/issues).
 
 > **Before you begin**: Have you read the [Code of Conduct](CODE_OF_CONDUCT.md)?
 > The Code of Conduct helps us establish community norms and how they'll be enforced.

@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft-07/schema",
+    "x-cs-indexable-fields": [
+        { "field": "/category", "type": "string", "fql_name": "category" },
+        { "field": "/domain", "type": "string", "fql_name": "domain" }
+    ],
+    "type": "object",
+    "properties": {
+        "category": {
+            "type": "string",
+            "description": "Category of the domain"
+        },
+        "domain": {
+            "type": "string",
+            "description": "Domain name"
+        },
+        "wildcard_domain": {
+            "type": "string",
+            "description": "Wildcard version of domain"
+        },
+        "imported_at": {
+            "type": "integer",
+            "description": "Unix timestamp when record was imported"
+        }
+    },
+    "required": ["category", "domain"]
+}
