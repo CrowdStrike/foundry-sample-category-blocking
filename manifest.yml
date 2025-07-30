@@ -1,7 +1,7 @@
 name: reactblocking
 description: react test
-logo: ""
-vendor: ""
+logo: images/logo.png
+vendor: CrowdStrike
 vendor_products: []
 use_case: Endpoint security
 manifest_version: "2023-05-09"
