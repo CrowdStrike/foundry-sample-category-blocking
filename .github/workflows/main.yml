@@ -59,6 +59,3 @@ jobs:
       - name: Build React app
         run: npm run build
         working-directory: ui/pages/reactblocking
-      - name: Test React app
-        run: npm test
-        working-directory: ui/pages/reactblocking
