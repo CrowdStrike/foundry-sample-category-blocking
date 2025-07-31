@@ -1,8 +1,8 @@
 ![CrowdStrike Falcon](/images/cs-logo.png?raw=true)
 
-# reactblocking sample Foundry app
+# URL Categorization sample Foundry app
 
-The reactblocking sample Foundry app is a community-driven, open source project which serves as an example of an app which can be built using CrowdStrike's Foundry ecosystem. `foundry-sample-url-filtering` is an open source project, not a CrowdStrike product. As such, it carries no formal support, expressed or implied.
+The URL Categorization sample Foundry app is a community-driven, open source project which serves as an example of an app which can be built using CrowdStrike's Foundry ecosystem. `foundry-sample-url-filtering` is an open source project, not a CrowdStrike product. As such, it carries no formal support, expressed or implied.
 
 This app is one of several App Templates included in Foundry that you can use to jumpstart your development. It comes complete with a set of preconfigured capabilities aligned to its business purpose. Deploy this app from the Templates page with a single click in the Foundry UI, or create an app from this template using the CLI.
 
@@ -17,10 +17,10 @@ A comprehensive URL filtering solution that simplifies firewall rule management 
 ## Prerequisites
 
 * The Foundry CLI (instructions below).
-* _Delete or add tools below as required. These are from other samples._
 * Python 3.13+ (needed if modifying the app's functions). See [Python For Beginners](https://www.python.org/about/gettingstarted/) for installation instructions.
-* Go v1.23+ (needed if modifying the app's functions). See https://go.dev/learn for installation instructions.
-* Yarn (needed if modifying the app's UI). See https://yarnpkg.com/getting-started for installation instructions.
+* Node.js (needed for React JS development).
+* npm 9+ or Yarn (needed for managing UI dependencies). See https://yarnpkg.com/getting-started for installation instructions.
+* FalconPy SDK (for CrowdStrike API integration). Install with pip install crowdstrike-falconpy
 
 ### Install the Foundry CLI
 
@@ -65,10 +65,10 @@ foundry login
 
 Select the following permissions:
 
-- [ ] Create and run RTR scripts
+- [X] Create and run RTR scripts
 - [x] Create, execute and test workflow templates
 - [x] Create, run and view API integrations
-- [ ] Create, edit, delete, and list queries
+- [X] Create, edit, delete, and list queries
 
 Deploy the app:
 
@@ -85,11 +85,16 @@ Once the deployment has finished, you can release the app:
 foundry apps release
 ```
 
-Next, go to **Foundry** > **App catalog**, find your app, and install it. Go to **Fusion SOAR** > **Workflows** to see the scheduled workflow from this app.
+Next, go to **Foundry** > **App catalog**, find your app, and install it. Go to **Customs Apps** > **Application Name** to see the scheduled workflow from this app.
 
 ## About this sample app
 
 This application demonstrates advanced usage of Functions,Collections and UI Experience in Falcon Foundry, implementing several key capabilities for URL filtering and firewall management:
+
+# Foundry capabilities used
+Collections. Used by the app to store Category URLS and Relationships between host groups, rulegroups and category.
+UI pages. Custom UI pages to display results and manage the app.
+Functions. Used by the app to define the logic of rule creation and interaction with Falcon tenant using Falconpy SDK.
 
 Python functions:
 reactblock: Fetches host groups information using
@@ -110,6 +115,10 @@ Relationship: Create relationship graph of data existing in relationship collect
 
 A UI Page on dedicated for this application
 
+# Directory structure
+collections. Schemas used in the collections used by this app.
+ui/pages/reactblocking. Single Page Application which serves as the frontend of the app.
+functions/reactblock. Python handlers to manage logic operations of the app.
 
 ## Foundry resources
 
