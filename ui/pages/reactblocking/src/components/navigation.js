@@ -1,484 +1,137 @@
-// import React from "react";
-// import { useLocation } from "react-router-dom";
-// import { Link } from './link';
-// import {
-//   SlTab,
-//   SlTabGroup,
-//   SlTabPanel,
-// } from "@shoelace-style/shoelace/dist/react";
-
-// function TabNavigation({ children }) {
-//   const location = useLocation();
-  
-//   return (
-//     <div className="space-y-4">
-//       <div className="text-center mb-6">
-//         <h1 className="text-3xl font-bold text-indigo-800 mb-2">
-//           Category Blocking
-//         </h1>
-//         <p className="text-purple-600">Configure URL blocking rules for your host groups</p>
-//       </div>
-
-//       <SlTabGroup>
-//         <SlTab 
-//           active={location.pathname === "/"} 
-//           slot="nav" 
-//           panel="url-blocking"
-//           className="text-purple-700 hover:text-purple-900"
-//         >
-//           <Link className="no-underline" to="/">
-//             URL Blocking
-//           </Link>
-//         </SlTab>
-//         <SlTab 
-//           active={location.pathname === "/about"} 
-//           slot="nav" 
-//           panel="custom-categories"
-//           className="text-purple-700 hover:text-purple-900"
-//         >
-//           <Link className="no-underline" to="/about">
-//             Custom Categories
-//           </Link>
-//         </SlTab>
-
-//         <SlTabPanel name="url-blocking">
-//           {location.pathname === "/" && children}
-//         </SlTabPanel>
-//         <SlTabPanel name="custom-categories">
-//           {location.pathname === "/about" && children}
-//         </SlTabPanel>
-//       </SlTabGroup>
-//     </div>
-//   );
-// }
-
-// // Optional: Add custom styles for Shoelace components
-// const styles = `
-//   sl-tab-group::part(tabs) {
-//     border-bottom: 2px solid #e2e8f0;
-//   }
-
-//   sl-tab::part(base) {
-//     padding: 0.75rem 1rem;
-//     color: #4a5568;
-//     font-weight: 500;
-//     transition: all 0.2s;
-//   }
-
-//   sl-tab[active]::part(base) {
-//     color: #6b46c1;
-//     border-bottom: 2px solid #6b46c1;
-//   }
-
-//   sl-tab:not([active])::part(base):hover {
-//     color: #2d3748;
-//   }
-
-//   sl-tab-panel::part(base) {
-//     padding: 1.5rem 0;
-//   }
-// `;
-
-// // Add styles to document
-// const styleSheet = new CSSStyleSheet();
-// styleSheet.replaceSync(styles);
-// document.adoptedStyleSheets = [...document.adoptedStyleSheets, styleSheet];
-
-// export { TabNavigation };
-
-// import React from "react";
-// import { useLocation } from "react-router-dom";
-// import { Link } from './link';
-// import {
-//   SlTab,
-//   SlTabGroup,
-//   SlTabPanel,
-// } from "@shoelace-style/shoelace/dist/react";
-
-// function TabNavigation({ children }) {
-//   const location = useLocation();
-  
-//   return (
-//     <div className="space-y-4">
-//       <div className="text-center mb-6">
-//         <h1 className="text-3xl font-bold text-indigo-800 mb-2">
-//           Category Blocking
-//         </h1>
-//         <p className="text-purple-600">Configure URL blocking rules for your host groups</p>
-//       </div>
-
-//       <SlTabGroup>
-//         <SlTab 
-//           active={location.pathname === "/"} 
-//           slot="nav" 
-//           panel="url-blocking"
-//           className="text-purple-700 hover:text-purple-900"
-//         >
-//           <Link className="no-underline" to="/">
-//             URL Blocking
-//           </Link>
-//         </SlTab>
-//         <SlTab 
-//           active={location.pathname === "/about"} 
-//           slot="nav" 
-//           panel="custom-categories"
-//           className="text-purple-700 hover:text-purple-900"
-//         >
-//           <Link className="no-underline" to="/about">
-//             Custom Categories
-//           </Link>
-//         </SlTab>
-//         <SlTab 
-//           active={location.pathname === "/domain-analytics"} 
-//           slot="nav" 
-//           panel="domain-analytics"
-//           className="text-purple-700 hover:text-purple-900"
-//         >
-//           <Link className="no-underline" to="/domain-analytics">
-//             Domain Analytics
-//           </Link>
-//         </SlTab>
-
-//         <SlTabPanel name="url-blocking">
-//           {location.pathname === "/" && children}
-//         </SlTabPanel>
-//         <SlTabPanel name="custom-categories">
-//           {location.pathname === "/about" && children}
-//         </SlTabPanel>
-//         <SlTabPanel name="domain-analytics">
-//           {location.pathname === "/domain-analytics" && children}
-//         </SlTabPanel>
-//       </SlTabGroup>
-//     </div>
-//   );
-// }
-
-// // Optional: Add custom styles for Shoelace components
-// const styles = `
-//   sl-tab-group::part(tabs) {
-//     border-bottom: 2px solid #e2e8f0;
-//   }
-
-//   sl-tab::part(base) {
-//     padding: 0.75rem 1rem;
-//     color: #4a5568;
-//     font-weight: 500;
-//     transition: all 0.2s;
-//   }
-
-//   sl-tab[active]::part(base) {
-//     color: #6b46c1;
-//     border-bottom: 2px solid #6b46c1;
-//   }
-
-//   sl-tab:not([active])::part(base):hover {
-//     color: #2d3748;
-//   }
-
-//   sl-tab-panel::part(base) {
-//     padding: 1.5rem 0;
-//   }
-
-//   /* Added styles for analytics tab */
-//   sl-tab[panel="domain-analytics"]::part(base) {
-//     display: flex;
-//     align-items: center;
-//     gap: 0.5rem;
-//   }
-
-//   sl-tab[panel="domain-analytics"][active]::part(base) {
-//     background-color: rgba(107, 70, 193, 0.05);
-//   }
-// `;
-
-// // Add styles to document
-// const styleSheet = new CSSStyleSheet();
-// styleSheet.replaceSync(styles);
-// document.adoptedStyleSheets = [...document.adoptedStyleSheets, styleSheet];
-
-// export { TabNavigation };
-
-// import React from "react";
-// import { useLocation } from "react-router-dom";
-// import { Link } from './link';
-// import {
-//   SlTab,
-//   SlTabGroup,
-//   SlTabPanel,
-// } from "@shoelace-style/shoelace/dist/react";
-
-// function TabNavigation({ children }) {
-//   const location = useLocation();
-  
-//   return (
-//     <div className="space-y-4">
-//       <div className="text-center mb-6">
-//         <h1 className="text-3xl font-bold text-indigo-800 mb-2">
-//           Category Blocking
-//         </h1>
-//         <p className="text-purple-600">Configure URL blocking rules for your host groups</p>
-//       </div>
-
-//       <SlTabGroup>
-//         <SlTab 
-//           active={location.pathname === "/"} 
-//           slot="nav" 
-//           panel="url-blocking"
-//           className="text-purple-700 hover:text-purple-900"
-//         >
-//           <Link className="no-underline" to="/">
-//             URL Blocking
-//           </Link>
-//         </SlTab>
-//         <SlTab 
-//           active={location.pathname === "/about"} 
-//           slot="nav" 
-//           panel="custom-categories"
-//           className="text-purple-700 hover:text-purple-900"
-//         >
-//           <Link className="no-underline" to="/about">
-//             Custom Categories
-//           </Link>
-//         </SlTab>
-//         <SlTab 
-//           active={location.pathname === "/domain-analytics"} 
-//           slot="nav" 
-//           panel="domain-analytics"
-//           className="text-purple-700 hover:text-purple-900"
-//         >
-//           <Link className="no-underline" to="/domain-analytics">
-//             Domain Analytics
-//           </Link>
-//         </SlTab>
-//         {/* New Firewall Rules Tab */}
-//         <SlTab 
-//           active={location.pathname === "/firewall-rules"} 
-//           slot="nav" 
-//           panel="firewall-rules"
-//           className="text-purple-700 hover:text-purple-900"
-//         >
-//           <Link className="no-underline" to="/firewall-rules">
-//             Firewall Rules
-//           </Link>
-//         </SlTab>
-
-//         <SlTabPanel name="url-blocking">
-//           {location.pathname === "/" && children}
-//         </SlTabPanel>
-//         <SlTabPanel name="custom-categories">
-//           {location.pathname === "/about" && children}
-//         </SlTabPanel>
-//         <SlTabPanel name="domain-analytics">
-//           {location.pathname === "/domain-analytics" && children}
-//         </SlTabPanel>
-//         {/* New Firewall Rules Panel */}
-//         <SlTabPanel name="firewall-rules">
-//           {location.pathname === "/firewall-rules" && children}
-//         </SlTabPanel>
-//       </SlTabGroup>
-      
-//       <SlTab active={location.pathname === "/relationship"} slot="nav" panel="relationship">
-//     <Link className="no-underline" to="/relationship">
-//         relationship
-//     </Link>
-// </SlTab>
-// <SlTabPanel name="relationship">{children}</SlTabPanel>
-
-//     </div>
-//   );
-// }
-
-// // Update the styles to include firewall-rules tab
-// const styles = `
-//   sl-tab-group::part(tabs) {
-//     border-bottom: 2px solid #e2e8f0;
-//   }
-
-//   sl-tab::part(base) {
-//     padding: 0.75rem 1rem;
-//     color: #4a5568;
-//     font-weight: 500;
-//     transition: all 0.2s;
-//   }
-
-//   sl-tab[active]::part(base) {
-//     color: #6b46c1;
-//     border-bottom: 2px solid #6b46c1;
-//   }
-
-//   sl-tab:not([active])::part(base):hover {
-//     color: #2d3748;
-//   }
-
-//   sl-tab-panel::part(base) {
-//     padding: 1.5rem 0;
-//   }
-
-//   sl-tab[panel="domain-analytics"]::part(base),
-//   sl-tab[panel="firewall-rules"]::part(base) {
-//     display: flex;
-//     align-items: center;
-//     gap: 0.5rem;
-//   }
-
-//   sl-tab[panel="domain-analytics"][active]::part(base),
-//   sl-tab[panel="firewall-rules"][active]::part(base) {
-//     background-color: rgba(107, 70, 193, 0.05);
-//   }
-// `;
-
-// // Add styles to document
-// const styleSheet = new CSSStyleSheet();
-// styleSheet.replaceSync(styles);
-// document.adoptedStyleSheets = [...document.adoptedStyleSheets, styleSheet];
-
-// export { TabNavigation };
-
 import React from "react";
-import { useLocation } from "react-router-dom";
-import { Link } from './link';
-import {
-  SlTab,
-  SlTabGroup,
-  SlTabPanel,
-} from "@shoelace-style/shoelace/dist/react";
+import { NavLink, useLocation } from "react-router-dom";
+import "@shoelace-style/shoelace/dist/themes/light.css";
+import { SlTab, SlTabGroup } from "@shoelace-style/shoelace/dist/react";
 
-function TabNavigation({ children }) {
-  const location = useLocation();
-  
-  return (
-    <div className="space-y-4">
-      <div className="text-center mb-6">
-        <h1 className="text-3xl font-bold text-indigo-800 mb-2">
-          Category Blocking
-        </h1>
-        <p className="text-purple-600">Configure URL blocking rules for your host groups</p>
-      </div>
-
-      <SlTabGroup>
-        <SlTab 
-          active={location.pathname === "/"} 
-          slot="nav" 
-          panel="url-blocking"
-          className="text-purple-700 hover:text-purple-900"
-        >
-          <Link className="no-underline" to="/">
-            URL Blocking
-          </Link>
-        </SlTab>
-        <SlTab 
-          active={location.pathname === "/about"} 
-          slot="nav" 
-          panel="custom-categories"
-          className="text-purple-700 hover:text-purple-900"
-        >
-          <Link className="no-underline" to="/about">
-            Custom Categories
-          </Link>
-        </SlTab>
-        <SlTab 
-          active={location.pathname === "/domain-analytics"} 
-          slot="nav" 
-          panel="domain-analytics"
-          className="text-purple-700 hover:text-purple-900"
-        >
-          <Link className="no-underline" to="/domain-analytics">
-            Domain Analytics
-          </Link>
-        </SlTab>
-        <SlTab 
-          active={location.pathname === "/firewall-rules"} 
-          slot="nav" 
-          panel="firewall-rules"
-          className="text-purple-700 hover:text-purple-900"
-        >
-          <Link className="no-underline" to="/firewall-rules">
-            Firewall Rules
-          </Link>
-        </SlTab>
-        {/* relationship Tab - Added inside SlTabGroup */}
-        <SlTab 
-          active={location.pathname === "/relationship"} 
-          slot="nav" 
-          panel="relationship"
-          className="text-purple-700 hover:text-purple-900"
-        >
-          <Link className="no-underline" to="/relationship">
-            relationship
-          </Link>
-        </SlTab>
-
-        <SlTabPanel name="url-blocking">
-          {location.pathname === "/" && children}
-        </SlTabPanel>
-        <SlTabPanel name="custom-categories">
-          {location.pathname === "/about" && children}
-        </SlTabPanel>
-        <SlTabPanel name="domain-analytics">
-          {location.pathname === "/domain-analytics" && children}
-        </SlTabPanel>
-        <SlTabPanel name="firewall-rules">
-          {location.pathname === "/firewall-rules" && children}
-        </SlTabPanel>
-        {/* relationship Panel */}
-        <SlTabPanel name="relationship">
-          {location.pathname === "/relationship" && children}
-        </SlTabPanel>
-      </SlTabGroup>
-    </div>
-  );
-}
-
-// Styles
-const styles = `
+const customStyles = `
+  sl-tab-group {
+    position: relative;
+  }
+  sl-tab-group::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background-color: #E5E7EB;
+  }
+  sl-tab-group::part(base) {
+    --sl-border-width: 0;
+  }
+  sl-tab-group::part(nav) {
+    border: none !important;
+  }
   sl-tab-group::part(tabs) {
-    border-bottom: 2px solid #e2e8f0;
-    display: flex;
-    justify-content: center;
-    gap: 1rem;
+    border: none !important;
   }
-
   sl-tab::part(base) {
-    padding: 0.75rem 1rem;
-    color: #4a5568;
-    font-weight: 500;
-    transition: all 0.2s;
-    border-radius: 0.375rem;
+    font-weight: 400;
+    color: var(--sl-color-neutral-700);
+    border-bottom: 2px solid transparent;
+    transition: border-color 0.2s ease;
+    position: relative;
+    z-index: 1;
   }
-
   sl-tab[active]::part(base) {
-    color: #6b46c1;
-    border-bottom: 2px solid #6b46c1;
-    background-color: rgba(107, 70, 193, 0.05);
-  }
-
-  sl-tab:not([active])::part(base):hover {
-    color: #2d3748;
-    background-color: rgba(107, 70, 193, 0.02);
-  }
-
-  sl-tab-panel::part(base) {
-    padding: 1.5rem 0;
-  }
-
-  sl-tab[panel="domain-analytics"]::part(base),
-  sl-tab[panel="firewall-rules"]::part(base),
-  sl-tab[panel="relationship"]::part(base) {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  sl-tab[panel="domain-analytics"][active]::part(base),
-  sl-tab[panel="firewall-rules"][active]::part(base),
-  sl-tab[panel="relationship"][active]::part(base) {
-    background-color: rgba(107, 70, 193, 0.05);
+    font-weight: 600;
+    color: var(--sl-color-neutral-700);
+    border-bottom: 2px solid rgb(26, 115, 232);
   }
 `;
 
-// Add styles to document
-const styleSheet = new CSSStyleSheet();
-styleSheet.replaceSync(styles);
-document.adoptedStyleSheets = [...document.adoptedStyleSheets, styleSheet];
+const styles = {
+  container: {
+    padding: '24px 0',
+  },
+  header: {
+    fontSize: '2rem',
+    fontWeight: '600',
+    marginBottom: '12px',
+    textAlign: 'center',
+  },
+  subHeader: {
+    fontSize: '0.875rem',
+    color: 'var(--sl-color-neutral-500)',
+    textAlign: 'center',
+    marginBottom: '24px',
+  },
+  nav: {
+    position: 'relative',
+  },
+  tabList: {
+    display: 'flex',
+    gap: '2rem',
+  },
+  tabGroup: {
+    '--sl-spacing-medium': '0',
+    position:'relative',
+    borderBottom: '1px solid #E5E7EB'
+  },
+  tab: {
+    padding: '8px 16px',
+    color: 'var(--sl-color-neutral-700)',
+    position: 'relative',
+  },
+  activeTab: {
+    fontWeight: '600',
+  },
+  content: {
+    paddingTop: '1.5rem',
+  }
+};
 
-export { TabNavigation };
+export function TabNavigation({ children }) {
+  const location = useLocation();
+
+  return (
+    <div className="max-w-screen-2xl mx-auto px-4">
+      <style>{customStyles}</style>
+      <div style={styles.container}>
+        <h1 style={styles.header}>Category Blocking</h1>
+        <p style={styles.subHeader}>Configure URL blocking rules for your host groups</p>
+      </div>
+
+      <SlTabGroup 
+        placement="bottom"
+        style={styles.tabGroup}
+      >
+        <nav style={styles.nav}>
+          <div style={styles.tabList}>
+            {[
+              { path: '/', label: 'URL Blocking' },
+              { path: '/about', label: 'Custom Categories' },
+              { path: '/domain-analytics', label: 'Domain Analytics' },
+              { path: '/firewall-rules', label: 'Firewall Rules' },
+              { path: '/relationship', label: 'Relationship' }
+            ].map(({ path, label }) => (
+              <SlTab 
+                key={path}
+                panel={path.substring(1) || 'home'}
+                active={location.pathname === path}
+                style={{
+                  ...styles.tab,
+                  ...(location.pathname === path ? styles.activeTab : {})
+                }}
+              >
+                <NavLink 
+                  to={path} 
+                  style={{ 
+                    textDecoration: 'none', 
+                    color: 'inherit',
+                  }}
+                >
+                  {label}
+                </NavLink>
+              </SlTab>
+            ))}
+          </div>
+        </nav>
+      </SlTabGroup>
+
+      <div style={styles.content}>
+        {children}
+      </div>
+    </div>
+  );
+}

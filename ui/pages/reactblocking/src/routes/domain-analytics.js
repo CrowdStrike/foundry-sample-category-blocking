@@ -1,18 +1,52 @@
-// src/routes/domain-analytics.js
 import React, { useState, useEffect } from 'react';
 import { useFalconApiContext } from '../contexts/falcon-api-context';
 import Plot from 'react-plotly.js';
+import { SlSpinner, SlCard, SlIcon } from '@shoelace-style/shoelace/dist/react';
 
-export function DomainAnalytics() {
+function DomainAnalytics() {
     const { falcon, isInitialized } = useFalconApiContext();
     const [analyticsData, setAnalyticsData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-
+    
+    // Function to check if dark mode is active
+    const isDarkTheme = () => document.documentElement.classList.contains('theme-dark');
+    
+    // Track dark mode for Plotly charts
+    const [isDarkMode, setIsDarkMode] = useState(isDarkTheme());
+    
+    // Preserve theme when component mounts and during its lifecycle
     useEffect(() => {
-        // Only fetch analytics when the Falcon API is initialized
+        // Log initial theme state
+        console.log("DomainAnalytics mounted, theme:", isDarkTheme() ? "dark" : "light");
+        
+        // Function to detect theme changes
+        const detectTheme = () => {
+            const isDark = isDarkTheme();
+            setIsDarkMode(isDark);
+        };
+        
+        // Set up observer to detect theme changes
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    detectTheme();
+                }
+            });
+        });
+        
+        observer.observe(document.documentElement, { 
+            attributes: true,
+            attributeFilter: ['class']
+        });
+        
+        // Clean up observer on unmount
+        return () => observer.disconnect();
+    }, []);
+
+    // Fetch analytics data when API is initialized
+    useEffect(() => {
         if (isInitialized) {
-            console.log("Falcon API initialized, fetching analytics...");
             fetchAnalytics();
         }
     }, [isInitialized]);
@@ -20,18 +54,13 @@ export function DomainAnalytics() {
     const fetchAnalytics = async () => {
         try {
             setLoading(true);
-            console.log("Making API call to fetch domain analytics data...");
             const response = await falcon.cloudFunction({ name: 'reactblock' })
                 .path('/domain-analytics')
                 .get();
-
-            console.log("Response received:", response);
             
             if (response?.body) {
-                console.log("Setting analytics data:", response.body);
                 setAnalyticsData(response.body);
             } else {
-                console.error("No body in response:", response);
                 setError("No data returned from API");
             }
         } catch (err) {
@@ -42,56 +71,176 @@ export function DomainAnalytics() {
         }
     };
 
-    // If Falcon API is not initialized yet, show loading
-    if (!isInitialized) {
+    // Update Plotly charts when theme changes
+    useEffect(() => {
+        if (!analyticsData) return;
+        
+        const updatePlotlyTheme = () => {
+            const plots = document.querySelectorAll('.js-plotly-plot');
+            plots.forEach(plot => {
+                if (plot && plot._fullLayout) {
+                    try {
+                        Plotly.relayout(plot, {
+                            'font.color': isDarkMode ? '#ffffff' : '#333333',
+                            'paper_bgcolor': 'transparent',
+                            'plot_bgcolor': 'transparent',
+                            'xaxis.color': isDarkMode ? '#ffffff' : '#333333',
+                            'xaxis.gridcolor': isDarkMode ? '#444444' : '#e5e5e5',
+                            'yaxis.color': isDarkMode ? '#ffffff' : '#333333',
+                            'yaxis.gridcolor': isDarkMode ? '#444444' : '#e5e5e5',
+                            'legend.font.color': isDarkMode ? '#ffffff' : '#333333',
+                        });
+                    } catch (err) {
+                        console.error("Error updating plot theme:", err);
+                    }
+                }
+            });
+        };
+        
+        // Update theme after a short delay to ensure plots are rendered
+        const timer = setTimeout(updatePlotlyTheme, 100);
+        return () => clearTimeout(timer);
+    }, [analyticsData, isDarkMode]);
+
+    if (!isInitialized || loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
-                <div className="text-lg text-indigo-600">Connecting to Falcon API...</div>
+                <SlSpinner style={{ fontSize: '3rem' }} />
             </div>
         );
     }
 
-    if (loading) return (
-        <div className="flex items-center justify-center min-h-screen">
-            <div className="text-lg text-indigo-600">Loading analytics...</div>
-        </div>
-    );
+    if (error) {
+        return (
+            <SlCard className="m-4">
+                <div slot="header">
+                    <h3 className="text-lg font-semibold text-left">Error</h3>
+                </div>
+                <div style={{ color: 'var(--sl-color-danger-600)' }}>
+                    <SlIcon name="exclamation-triangle" style={{ marginRight: '0.5rem' }} />
+                    {error}
+                </div>
+            </SlCard>
+        );
+    }
 
-    if (error) return (
-        <div className="p-4 bg-red-50 text-red-600 rounded-lg m-4">
-            Error: {error}
-        </div>
-    );
-
-    if (!analyticsData) return (
-        <div className="p-4 bg-yellow-50 text-yellow-600 rounded-lg m-4">
-            No data available
-        </div>
-    );
-
-    console.log("Rendering with data:", analyticsData);
-
-    // Check if the expected data structure exists
-    if (!analyticsData.visualization_data || 
+    if (!analyticsData || !analyticsData.visualization_data || 
         !analyticsData.visualization_data.bar_chart || 
         !analyticsData.visualization_data.comparison_chart) {
-        console.error("Invalid data structure:", analyticsData);
         return (
-            <div className="p-4 bg-red-50 text-red-600 rounded-lg m-4">
-                Error: Invalid data structure received from API
-            </div>
+            <SlCard className="m-4">
+                <div slot="header">
+                    <h3 className="text-lg font-semibold text-left">No Data</h3>
+                </div>
+                <div style={{ color: 'var(--sl-color-warning-600)' }}>
+                    <SlIcon name="info-circle" style={{ marginRight: '0.5rem' }} />
+                    No analytics data available
+                </div>
+            </SlCard>
         );
     }
 
-    return (
-        <div className="container mx-auto p-6 space-y-6">
-            <h1 className="text-2xl font-bold text-indigo-800 mb-6">
-                Domain Access Analysis
-            </h1>
+    // Simple chart layouts with theme-aware colors
+    const barChartLayout = {
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        title: {
+            text: 'Top 20 Most Visited Domains (Last 15 Days)',
+            font: {
+                color: isDarkMode ? '#ffffff' : '#333333'
+            }
+        },
+        xaxis: { 
+            title: 'Number of Visits',
+            side: 'top',
+            color: isDarkMode ? '#ffffff' : '#333333',
+            gridcolor: isDarkMode ? '#444444' : '#e5e5e5'
+        },
+        yaxis: { 
+            title: 'Domain',
+            showticklabels: false,
+            color: isDarkMode ? '#ffffff' : '#333333',
+            gridcolor: isDarkMode ? '#444444' : '#e5e5e5'
+        },
+        height: 800,
+        margin: { l: 20, r: 20, t: 50, b: 20 },
+        autosize: true,
+        font: {
+            color: isDarkMode ? '#ffffff' : '#333333'
+        }
+    };
 
-            {/* Bar Chart */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
+    const comparisonChartLayout = {
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        title: {
+            text: 'Visits vs Unique IPs by Domain',
+            font: {
+                color: isDarkMode ? '#ffffff' : '#333333'
+            }
+        },
+        xaxis: { 
+            title: 'Domain',
+            color: isDarkMode ? '#ffffff' : '#333333',
+            gridcolor: isDarkMode ? '#444444' : '#e5e5e5'
+        },
+        yaxis: { 
+            title: 'Count',
+            color: isDarkMode ? '#ffffff' : '#333333',
+            gridcolor: isDarkMode ? '#444444' : '#e5e5e5'
+        },
+        barmode: 'group',
+        height: 600,
+        autosize: true,
+        font: {
+            color: isDarkMode ? '#ffffff' : '#333333'
+        },
+        legend: {
+            font: {
+                color: isDarkMode ? '#ffffff' : '#333333'
+            }
+        }
+    };
+
+    // Create text annotations for the bar chart
+    const barChartAnnotations = analyticsData.visualization_data.bar_chart.domains.map((domain, i) => {
+        const visits = analyticsData.visualization_data.bar_chart.visits[i];
+        return {
+            x: visits / 2, // Position text in middle of bar
+            y: i,
+            text: domain,
+            showarrow: false,
+            font: {
+                color: 'white', // White text for contrast
+                size: 12
+            },
+            xanchor: 'center'
+        };
+    });
+
+    // Add annotations to layout
+    barChartLayout.annotations = barChartAnnotations;
+
+    // Use Falcon Shoelace color variables
+    const primaryColor = isDarkMode ? 
+        'var(--sl-color-primary-600, #0078d4)' : 
+        'var(--sl-color-primary-600, #0078d4)';
+    
+    const secondaryColor = isDarkMode ? 
+        'var(--sl-color-secondary-600, #6264a7)' : 
+        'var(--sl-color-secondary-600, #6264a7)';
+
+    return (
+        <div className="container mx-auto p-4">
+            <h2 className="text-lg font-semibold text-left mb-4">Domain access analysis</h2>
+            
+            <SlCard>
+                <div slot="header">
+                    <h3 className="text-lg font-semibold text-left">Top Domains</h3>
+                </div>
+                
                 <Plot
+                    key={`bar-chart-${isDarkMode ? 'dark' : 'light'}`}
                     data={[
                         {
                             type: 'bar',
@@ -99,43 +248,47 @@ export function DomainAnalytics() {
                             y: analyticsData.visualization_data.bar_chart.domains,
                             orientation: 'h',
                             text: analyticsData.visualization_data.bar_chart.visits,
-                            textposition: 'auto',
+                            textposition: 'outside',
+                            insidetextanchor: 'middle',
                             marker: {
-                                color: 'rgba(58, 71, 80, 0.6)',
+                                color: primaryColor,
                                 line: {
-                                    color: 'rgba(58, 71, 80, 1.0)',
+                                    color: primaryColor,
                                     width: 1
                                 }
-                            }
+                            },
+                            hovertemplate: '<b>%{y}</b><br>Visits: %{x}<extra></extra>'
                         }
                     ]}
-                    layout={{
-                        title: 'Top 20 Most Visited Domains (Last 15 Days)',
-                        xaxis: { title: 'Number of Visits' },
-                        yaxis: { title: 'Domain' },
-                        height: 800,
-                        margin: { l: 150 },
-                        autosize: true
-                    }}
+                    layout={barChartLayout}
                     useResizeHandler={true}
-                    className="w-full"
                     style={{ width: '100%', height: '100%' }}
+                    config={{ 
+                        responsive: true,
+                        displayModeBar: false
+                    }}
                 />
-            </div>
+            </SlCard>
 
-            {/* Comparison Chart */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
+            <SlCard className="mt-4">
+                <div slot="header">
+                    <h3 className="text-lg font-semibold text-left">Comparison Analysis</h3>
+                </div>
+                
                 <Plot
+                    key={`comparison-chart-${isDarkMode ? 'dark' : 'light'}`}
                     data={[
                         {
                             name: 'Total Visits',
                             type: 'bar',
                             x: analyticsData.visualization_data.comparison_chart.domains,
                             y: analyticsData.visualization_data.comparison_chart.visits,
+                            text: analyticsData.visualization_data.comparison_chart.visits,
+                            textposition: 'auto',
                             marker: {
-                                color: 'rgba(55, 83, 109, 0.7)',
+                                color: primaryColor,
                                 line: {
-                                    color: 'rgba(55, 83, 109, 1.0)',
+                                    color: primaryColor,
                                     width: 1
                                 }
                             }
@@ -145,61 +298,67 @@ export function DomainAnalytics() {
                             type: 'bar',
                             x: analyticsData.visualization_data.comparison_chart.domains,
                             y: analyticsData.visualization_data.comparison_chart.unique_ips,
+                            text: analyticsData.visualization_data.comparison_chart.unique_ips,
+                            textposition: 'auto',
                             marker: {
-                                color: 'rgba(219, 64, 82, 0.7)',
+                                color: secondaryColor,
                                 line: {
-                                    color: 'rgba(219, 64, 82, 1.0)',
+                                    color: secondaryColor,
                                     width: 1
                                 }
                             }
                         }
                     ]}
-                    layout={{
-                        title: 'Visits vs Unique IPs by Domain',
-                        xaxis: { title: 'Domain' },
-                        yaxis: { title: 'Count' },
-                        barmode: 'group',
-                        height: 600,
-                        autosize: true
-                    }}
+                    layout={comparisonChartLayout}
                     useResizeHandler={true}
-                    className="w-full"
                     style={{ width: '100%', height: '100%' }}
+                    config={{ 
+                        responsive: true,
+                        displayModeBar: false
+                    }}
                 />
-            </div>
+            </SlCard>
 
-            {/* Data Table */}
-            <div className="bg-white rounded-xl shadow-lg p-6 overflow-x-auto">
-                <h2 className="text-xl font-semibold mb-4">Detailed Analysis</h2>
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                        <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Domain</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visit Count</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unique IPs</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unique Hosts</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Seen</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {Object.entries(analyticsData.analysis).map(([domain, data], index) => (
-                            <tr key={domain} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{domain}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{data.visit_count}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{data.unique_ips}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{data.unique_hosts}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {new Date(data.first_seen).toLocaleString()}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {new Date(data.last_seen).toLocaleString()}
-                                </td>
+            {/* Table section using standard HTML with Falcon Shoelace styling */}
+            <SlCard className="mt-4">
+                <div slot="header">
+                    <h3 className="text-lg font-semibold text-left">Detailed Analysis</h3>
+                </div>
+                
+                <div className="overflow-x-auto">
+                    <table className="min-w-full" style={{ borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr>
+                                {['Domain', 'Visit Count', 'Unique IPs', 'Unique Hosts', 'First Seen', 'Last Seen'].map(header => (
+                                    <th key={header} 
+                                        className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                                        {header}
+                                    </th>
+                                ))}
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+                        </thead>
+                        <tbody>
+                            {Object.entries(analyticsData.analysis).map(([domain, data], index) => (
+                                <tr key={domain} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{domain}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{data.visit_count}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{data.unique_ips}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{data.unique_hosts}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        {new Date(data.first_seen).toLocaleString()}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        {new Date(data.last_seen).toLocaleString()}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </SlCard>
         </div>
     );
 }
+
+export { DomainAnalytics };
+
