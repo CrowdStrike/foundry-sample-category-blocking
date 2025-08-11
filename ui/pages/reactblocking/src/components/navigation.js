@@ -41,9 +41,6 @@ const customStyles = `
 `;
 
 const styles = {
-  container: {
-    padding: '24px 0',
-  },
   header: {
     fontSize: '2rem',
     fontWeight: '600',
@@ -53,11 +50,10 @@ const styles = {
   subHeader: {
     fontSize: '0.875rem',
     color: 'var(--sl-color-neutral-500)',
-    textAlign: 'center',
-    marginBottom: '24px',
+    textAlign: 'center'
   },
   nav: {
-    position: 'relative',
+    position: 'relative'
   },
   tabList: {
     display: 'flex',
@@ -66,7 +62,9 @@ const styles = {
   tabGroup: {
     '--sl-spacing-medium': '0',
     position:'relative',
-    borderBottom: '1px solid #E5E7EB'
+    borderBottom: '1px solid #E5E7EB',
+    display: 'flex',
+    justifyContent: 'center'
   },
   tab: {
     padding: '8px 16px',
@@ -92,7 +90,7 @@ export function TabNavigation({ children }) {
         <p style={styles.subHeader}>Configure URL blocking rules for your host groups</p>
       </div>
 
-      <SlTabGroup 
+      <SlTabGroup
         placement="bottom"
         style={styles.tabGroup}
       >
@@ -105,7 +103,7 @@ export function TabNavigation({ children }) {
               { path: '/firewall-rules', label: 'Firewall Rules' },
               { path: '/relationship', label: 'Relationship' }
             ].map(({ path, label }) => (
-              <SlTab 
+              <SlTab
                 key={path}
                 panel={path.substring(1) || 'home'}
                 active={location.pathname === path}
@@ -114,10 +112,10 @@ export function TabNavigation({ children }) {
                   ...(location.pathname === path ? styles.activeTab : {})
                 }}
               >
-                <NavLink 
-                  to={path} 
-                  style={{ 
-                    textDecoration: 'none', 
+                <NavLink
+                  to={path}
+                  style={{
+                    textDecoration: 'none',
                     color: 'inherit',
                   }}
                 >

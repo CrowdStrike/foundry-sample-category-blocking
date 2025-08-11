@@ -1,4 +1,4 @@
-app_id: f5308005a62b45d49904fa9aa01bb7c1
+app_id: 7d6023ff3bae49de91d65616be9953f9
 name: categoryblocking
 description: react test
 logo: images/logo.png
@@ -22,7 +22,7 @@ ui:
     extensions: []
     pages:
         reactblocking:
-            id: 29847c2ff6254d0db5a9b02330eb6c34
+            id: 87561d310b9947fcbd821aaacf08d410
             name: reactblocking
             description: react blocking test
             path: ui/pages/reactblocking/src/dist
@@ -39,7 +39,7 @@ ui:
             permissions: []
     dashboards: {}
     navigation:
-        id: 2ce51e19660f47979c0076677999349c
+        id: 35953769547b4b5f9a3036310f98acda
         links:
             - path: /
               name: URL Blocking
@@ -73,7 +73,7 @@ auth:
     permissions: {}
     roles: []
 functions:
-    - id: 6c474ae256a941109a7c57bb5be84f47
+    - id: e104522b053b46b8b64589858144a8ae
       name: reactblock
       config: null
       description: react block
@@ -84,6 +84,7 @@ functions:
           description: react block
           method: GET
           api_path: /reactblock
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -92,6 +93,7 @@ functions:
           description: get categories
           method: GET
           api_path: /categories
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -100,6 +102,7 @@ functions:
           description: Create blocking rule
           method: POST
           api_path: /create-rule
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -108,6 +111,7 @@ functions:
           description: Create blocking rule
           method: GET
           api_path: /domain-analytics
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -116,6 +120,7 @@ functions:
           description: Import CSV data into Collections
           method: POST
           api_path: /import-csv
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -124,6 +129,7 @@ functions:
           description: Import CSV data into Collections
           method: GET
           api_path: /list-categories
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -132,6 +138,7 @@ functions:
           description: Import CSV data into Collections
           method: GET
           api_path: /search-categories
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -140,6 +147,7 @@ functions:
           description: Import CSV data into Collections
           method: POST
           api_path: /manage-category
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -148,6 +156,7 @@ functions:
           description: Import CSV data into Collections
           method: POST
           api_path: /manage-relationship
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -156,6 +165,7 @@ functions:
           description: Import CSV data into Collections
           method: GET
           api_path: /get-relationship
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
@@ -164,6 +174,7 @@ functions:
           description: update rules by creating new rule with updates urls
           method: POST
           api_path: /update-rules
+          payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
