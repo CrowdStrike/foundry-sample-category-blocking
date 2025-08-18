@@ -92,11 +92,18 @@ Next, go to **Foundry** > **App catalog**, find your app, and install it. Go to 
 This application demonstrates advanced usage of Functions,Collections and UI Experience in Falcon Foundry, implementing several key capabilities for URL filtering and firewall management:
 
 # Foundry capabilities used
-Collections. Used by the app to store Category URLS and Relationships between host groups, rulegroups and category.
-UI pages. Custom UI pages to display results and manage the app.
-Functions. Used by the app to define the logic of rule creation and interaction with Falcon tenant using Falconpy SDK.
+
+Collections
+Used by the app to store Category URLS and Relationships between host groups, rulegroups and category.
+
+UI pages
+Custom UI pages to display results and manage the app.
+
+Functions
+Used by the app to define the logic of rule creation and interaction with Falcon tenant using Falconpy SDK.
 
 Python functions:
+
 reactblock: Fetches host groups information using
 categories: Fetches categories using FalconPy from collections
 create-rule: Create Firewall management blocking rule with selected category using FalconPy
