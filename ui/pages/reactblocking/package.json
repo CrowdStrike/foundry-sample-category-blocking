@@ -18,7 +18,7 @@
     "react-router-dom": "7.8.0"
   },
   "devDependencies": {
-    "@babel/core": "7.27.3",
+    "@babel/core": "^7.28.3",
     "@babel/preset-react": "7.27.1",
     "@rollup/plugin-babel": "6.0.4",
     "@rollup/plugin-commonjs": "28.0.6",
@@ -27,7 +27,7 @@
     "@rollup/plugin-replace": "6.0.2",
     "@web/rollup-plugin-html": "2.3.0",
     "postcss": "^8.5.6",
-    "rollup": "4.41.1",
+    "rollup": "^4.46.2",
     "rollup-plugin-postcss": "^4.0.2"
   },
   "scripts": {
