@@ -3,13 +3,19 @@ updates:
   - package-ecosystem: pip
     directory: "/functions/reactblock/"
     schedule:
-      interval: weekly
+      interval: "weekly"
+      day: "monday"
+      time: "14:00"
+      timezone: "UTC"
   - package-ecosystem: npm
     directories:
       - "/ui/pages/reactblocking/"
     open-pull-requests-limit: 10
     schedule:
-      interval: weekly
+      interval: "weekly"
+      day: "monday"
+      time: "14:00"
+      timezone: "UTC"
     groups:
       react:
         patterns:
@@ -18,4 +24,7 @@ updates:
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
+      interval: "weekly"
+      day: "monday"
+      time: "14:00"
+      timezone: "UTC"
