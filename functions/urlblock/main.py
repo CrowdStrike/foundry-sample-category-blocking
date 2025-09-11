@@ -1,3 +1,10 @@
+"""
+URL Block Function Module
+
+This module provides functionality for managing URL blocking rules in CrowdStrike Falcon.
+It includes handlers for creating and managing categories, relationships, and firewall rules.
+"""
+
 # Foundry specific imports first
 from crowdstrike.foundry.function import Function, Request, Response, APIError, cloud
 from logging import Logger
@@ -1135,6 +1142,16 @@ def update_rules(request: Request, config: [dict[str, any], None], logger: Logge
 
 @func.handler(method='GET', path='/healthz')
 def healthz(request, config):
+    """
+    Health check endpoint.
+
+    Args:
+        request (Request): The incoming request
+        config (dict): Configuration dictionary
+
+    Returns:
+        Response: 200 OK response indicating service is healthy
+    """
     return Response(code=200)
 
 if __name__ == '__main__':
