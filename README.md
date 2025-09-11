@@ -1,131 +1,102 @@
 ![CrowdStrike Falcon](/images/cs-logo.png?raw=true)
 
-# URL Categorization sample Foundry app
+# URL Categorization Foundry app
 
-The URL Categorization sample Foundry app is a community-driven, open source project which serves as an example of an app which can be built using CrowdStrike's Foundry ecosystem. `foundry-sample-url-filtering` is an open source project, not a CrowdStrike product. As such, it carries no formal support, expressed or implied.
-
-This app is one of several App Templates included in Foundry that you can use to jumpstart your development. It comes complete with a set of preconfigured capabilities aligned to its business purpose. Deploy this app from the Templates page with a single click in the Foundry UI, or create an app from this template using the CLI.
-
-> [!IMPORTANT]  
-> To view documentation and deploy this sample app, you need access to the Falcon console.
+This URL Categorization Foundry app provides a comprehensive URL filtering solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines URL blocking workflows while providing valuable insights into blocking patterns.
 
 ## Description
 
-A comprehensive URL filtering solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines URL blocking workflows while providing valuable insights into blocking patterns.
+The URL Categorization app allows you to:
 
+- Create and manage custom categories of URLs for blocking
+- Deploy firewall rules to block categories of URLs across host groups
+- Import URL categories from CSV files
+- Visualize relationships between categories, rule groups, and host groups
+- Generate analytics on domain blocking patterns
 
 ## Prerequisites
 
-* The Foundry CLI (instructions below).
 * Python 3.13+ (needed if modifying the app's functions). See [Python For Beginners](https://www.python.org/about/gettingstarted/) for installation instructions.
 * Node.js (needed for React JS development).
 * npm 9+ or Yarn (needed for managing UI dependencies). See https://yarnpkg.com/getting-started for installation instructions.
 * FalconPy SDK (for CrowdStrike API integration). Install with pip install crowdstrike-falconpy
 
-### Install the Foundry CLI
-
-You can install the Foundry CLI with Scoop on Windows or Homebrew on Linux/macOS.
-
-**Windows**:
-
-Install [Scoop](https://scoop.sh/). Then, add the Foundry CLI bucket and install the Foundry CLI.
-
-```shell
-scoop bucket add foundry https://github.com/crowdstrike/scoop-foundry-cli.git
-scoop install foundry
-```
-
-Or, you can download the [latest Windows zip file](https://assets.foundry.crowdstrike.com/cli/latest/foundry_Windows_x86_64.zip), expand it, and add the install directory to your PATH environment variable.
-
-**Linux and macOS**:
-
-Install [Homebrew](https://docs.brew.sh/Installation). Then, add the Foundry CLI repository to the list of formulae that Homebrew uses and install the CLI:
-
-```shell
-brew tap crowdstrike/foundry-cli
-brew install crowdstrike/foundry-cli/foundry
-```
-
-Run `foundry version` to verify it's installed correctly.
-
 ## Getting Started
 
-Clone this sample to your local system, or [download as a zip file](https://github.com/CrowdStrike/foundry-sample-url-filtering/archive/refs/heads/main.zip) and import it into Foundry.
+Clone this repository to your local system:
 
 ```shell
 git clone https://github.com/CrowdStrike/foundry-sample-url-filtering
 cd foundry-sample-url-filtering
 ```
 
-Log in to Foundry:
+### Required permissions
 
-```shell
-foundry login
-```
+This app requires the following API scopes:
+- firewall-management:read
+- firewall-management:write
+- host-group:read
+- host-group:write
+- devices:read
+- devices:write
 
-Select the following permissions:
+## About this app
 
-- [X] Create and run RTR scripts
-- [x] Create, execute and test workflow templates
-- [x] Create, run and view API integrations
-- [X] Create, edit, delete, and list queries
+This application demonstrates advanced usage of Functions, Collections and UI Experience in Falcon Foundry, implementing several key capabilities for URL filtering and firewall management:
 
-Deploy the app:
+### Key Components
 
-```shell
-foundry apps deploy
-```
+1. **Python functions with multiple handlers:**
+   - **urlblock**: Fetches host groups information
+   - **categories**: Retrieves categories from collections
+   - **create-rule**: Creates firewall management blocking rules
+   - **domain-analytics**: Generates domain analytics information
+   - **import-csv**: Transforms category domain CSV into collections
+   - **list-categories**: Lists available categories
+   - **search-categories**: Searches for specific categories
+   - **manage-categories**: Creates or updates categories
+   - **manage-relationship**: Creates relationships between categories, rule groups, and hosts
+   - **get-relationship**: Retrieves relationship information
+   - **update-rules**: Updates existing rules with new URLs
 
-> [!TIP]
-> If you get an error that the name already exists, change the name to something unique to your CID in `manifest.yml`.
+2. **Collections for data storage:**
+   - **domain**: Stores URLs and category mappings
+   - **relationship**: Stores relationship information about host groups, rule groups, and categories
 
-Once the deployment has finished, you can release the app:
+3. **UI Pages with React components:**
+   - **Home**: Main interface for creating firewall rules
+   - **FirewallRules**: Management of domain categories
+   - **DomainAnalytics**: Visualization of domain data
+   - **Relationship**: Visualization of relationships between categories, rule groups, and host groups
 
-```shell
-foundry apps release
-```
+### Directory structure
+- **collections**: Schemas for domain and relationship collections
+- **ui/pages/urlblocking**: React-based frontend application
+- **functions/urlblock**: Python backend handlers
 
-Next, go to **Foundry** > **App catalog**, find your app, and install it. Go to **Customs Apps** > **Application Name** to see the scheduled workflow from this app.
+## Using the App
 
-## About this sample app
+### Creating URL Categories
+1. Navigate to the **FirewallRules** page
+2. Click "Import Categories" to import from a CSV file, or manually add categories
+3. View and manage your categories from this interface
 
-This application demonstrates advanced usage of Functions,Collections and UI Experience in Falcon Foundry, implementing several key capabilities for URL filtering and firewall management:
+### Creating Blocking Rules
+1. Navigate to the **Home** page
+2. Enter a policy name and select a host group
+3. Select the categories you want to block
+4. Click "Preview URLs" to see what will be blocked
+5. Click "Create blocking rule" to deploy the rule
 
-# Foundry capabilities used
+### Viewing Analytics
+1. Navigate to the **DomainAnalytics** page
+2. View charts and statistics about blocked domains
+3. Analyze patterns and effectiveness of your blocking rules
 
-Collections
-Used by the app to store Category URLS and Relationships between host groups, rulegroups and category.
-
-UI pages
-Custom UI pages to display results and manage the app.
-
-Functions
-Used by the app to define the logic of rule creation and interaction with Falcon tenant using Falconpy SDK.
-
-Python functions:
-
-reactblock: Fetches host groups information using
-categories: Fetches categories using FalconPy from collections
-create-rule: Create Firewall management blocking rule with selected category using FalconPy
-domain-analytics: Fetches domain analytics information
-import-csv: Transforms category domain csv into collections
-update-rules:Adds updated urls in existing rulegroups using relationship collection
-
-Collections:
-domain: Collection store for urls and category mapping
-relationship: Collection which store relationship information about host groups, rulegroups and categories
-
-Foundry-JS
-DomainAnalytics: Creates domain analytics using react-plotly.
-FirewallRules: Allows to update existing url categories information in collection
-Relationship: Create relationship graph of data existing in relationship collection
-
-A UI Page on dedicated for this application
-
-# Directory structure
-collections. Schemas used in the collections used by this app.
-ui/pages/reactblocking. Single Page Application which serves as the frontend of the app.
-functions/reactblock. Python handlers to manage logic operations of the app.
+### Visualizing Relationships
+1. Navigate to the **Relationship** page
+2. Explore the connections between categories, rule groups, and host groups
+3. Understand how your blocking rules are structured
 
 ## Foundry resources
 
