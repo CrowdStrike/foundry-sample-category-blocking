@@ -1,39 +1,41 @@
 """
 URL Block Function Module
 
-This module provides functionality for managing URL blocking rules in CrowdStrike Falcon.
+This module provides FUNCtionality for managing URL blocking rules in CrowdStrike Falcon.
 It includes handlers for creating and managing categories, relationships, and firewall rules.
 """
 
-# Foundry specific imports first
-from crowdstrike.foundry.function import Function, Request, Response, APIError, cloud
+# Standard library imports
+import csv
+import os
+import time
+import traceback
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from logging import Logger
 
-# Third-party import
-from falconpy import APIHarnessV2
-from falconpy import HostGroup
-from falconpy import FirewallManagement
-from falconpy import FirewallPolicies
-from falconpy import CustomStorage
-
-# Standard library import
-import traceback
-import os
-import csv
-import json
-
-import time
-
-from datetime import datetime, timedelta
+# Third-party imports
 import pytz
-from collections import Counter, defaultdict
-from crowdstrike.foundry.function import Function, Request, Response, APIError, cloud
-from falconpy import APIHarnessV2
-from falconpy import CustomStorage
-from datetime import datetime
 
+# CrowdStrike imports
+from crowdstrike.foundry.function import (
+    APIError,
+    Function,
+    Request,
+    Response,
+    cloud,
+)
+from falconpy import (
+    APIHarnessV2,
+    CustomStorage,
+    FirewallManagement,
+    FirewallPolicies,
+    HostGroup,
+)
 
-func = Function.instance()
+# Initialize FUNCtion
+FUNC = Function.instance()
+
 
 def transform_csv_row(row):
     """Transform a CSV row to match the Collection schema."""
@@ -102,7 +104,7 @@ def process_csv_records(csv_path, customobjects, collection_name="domain", colle
         "error_count": error_count
     }
 
-@func.handler(method='POST', path='/import-csv')
+@FUNC.handler(method='POST', path='/import-csv')
 def import_csv_handler(request: Request) -> Response:
     """Import domain categorization CSV data into a Foundry Collection."""
 
@@ -142,7 +144,7 @@ def import_csv_handler(request: Request) -> Response:
             errors=[APIError(code=500, message=f"CSV import failed: {str(e)}")]
         )
 
-@func.handler(method='GET', path='/urlblock')
+@FUNC.handler(method='GET', path='/urlblock')
 def on_create(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     logger.info("Starting host groups handler")
     try:
@@ -215,7 +217,7 @@ def on_create(request: Request, config: [dict[str, any], None], logger: Logger) 
             }
         )
 
-@func.handler(method='GET', path='/categories')
+@FUNC.handler(method='GET', path='/categories')
 def get_categories(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     logger.info("Starting categories handler")
     try:
@@ -286,7 +288,7 @@ def get_categories(request: Request, config: [dict[str, any], None], logger: Log
             }
         )
 
-@func.handler(method='POST', path='/create-rule')
+@FUNC.handler(method='POST', path='/create-rule')
 def create_rule(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     logger.info("Starting create rule handler")
     try:
@@ -432,7 +434,7 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
         )
 
 
-@func.handler(method='GET', path='/domain-analytics')
+@FUNC.handler(method='GET', path='/domain-analytics')
 def get_domain_analytics(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     logger.info("Starting domain analytics handler")
     try:
@@ -585,7 +587,7 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
 
 
 
-@func.handler(method='GET', path='/list-categories')
+@FUNC.handler(method='GET', path='/list-categories')
 def list_categories(request: Request) -> Response:
     try:
         # Initialize API client
@@ -685,7 +687,7 @@ def list_categories(request: Request) -> Response:
         )
 
 
-@func.handler(method='GET', path='/search-categories')
+@FUNC.handler(method='GET', path='/search-categories')
 def search_categories(request: Request) -> Response:
     try:
         # Initialize API client
@@ -729,7 +731,7 @@ def search_categories(request: Request) -> Response:
         )
 
 
-@func.handler(method='POST', path='/manage-category')
+@FUNC.handler(method='POST', path='/manage-category')
 def manage_category(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     """Create or update a category with comma-separated URLs"""
     logger.info("Starting manage category handler")
@@ -825,7 +827,7 @@ def manage_category(request: Request, config: [dict[str, any], None], logger: Lo
             }
         )
 
-@func.handler(method='POST', path='/manage-relationship')
+@FUNC.handler(method='POST', path='/manage-relationship')
 def manage_relationship(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     """Create or update relationship between category, rule group, and host"""
     logger.info("Starting relationship management")
@@ -919,7 +921,7 @@ def manage_relationship(request: Request, config: [dict[str, any], None], logger
             }
         )
 
-@func.handler(method='GET', path='/get-relationship')
+@FUNC.handler(method='GET', path='/get-relationship')
 def get_relationship(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     """Get all relationship and format for graph visualization"""
     try:
@@ -1004,7 +1006,7 @@ def get_relationship(request: Request, config: [dict[str, any], None], logger: L
 
 #Updates rules
 
-@func.handler(method='POST', path='/update-rules')
+@FUNC.handler(method='POST', path='/update-rules')
 def update_rules(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     """Update rules in rule groups with only newly added URLs"""
     logger.info("Starting rule update handler")
@@ -1140,7 +1142,7 @@ def update_rules(request: Request, config: [dict[str, any], None], logger: Logge
 
 
 
-@func.handler(method='GET', path='/healthz')
+@FUNC.handler(method='GET', path='/healthz')
 def healthz(request, config):
     """
     Health check endpoint.
@@ -1155,4 +1157,4 @@ def healthz(request, config):
     return Response(code=200)
 
 if __name__ == '__main__':
-    func.run()
+    FUNC.run()
