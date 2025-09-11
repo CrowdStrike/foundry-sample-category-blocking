@@ -68,7 +68,7 @@ class FnTestCase(unittest.TestCase):
 
     @patch("main.CustomStorage")
     @patch("builtins.open", new_callable=mock_open, read_data="category,domain\ngaming,example.com")
-    def test_process_csv_records_success(self, mock_file, mock_custom_storage):
+    def test_process_csv_records_success(self, _mock_file, mock_custom_storage):
         """Test successful CSV processing."""
         mock_customobjects = MagicMock()
         mock_custom_storage.return_value = mock_customobjects
@@ -93,7 +93,7 @@ class FnTestCase(unittest.TestCase):
     @patch("os.path.join")
     @patch("os.path.abspath")
     def test_import_csv_handler_success(self, mock_abspath, mock_join, mock_dirname,
-                                      mock_cloud, mock_api_harness, mock_custom_storage):
+                                      mock_cloud, mock_api_harness, _mock_custom_storage):
         """Test successful CSV import handler."""
         # Setup mocks
         mock_dirname.return_value = "/test/dir"
@@ -104,7 +104,7 @@ class FnTestCase(unittest.TestCase):
         mock_api_client = MagicMock()
         mock_api_harness.return_value = mock_api_client
         mock_customobjects = MagicMock()
-        mock_custom_storage.return_value = mock_customobjects
+        _mock_custom_storage.return_value = mock_customobjects
 
         # Mock process_csv_records
         with patch.object(main, 'process_csv_records') as mock_process:
@@ -126,7 +126,7 @@ class FnTestCase(unittest.TestCase):
     @patch("main.CustomStorage")
     @patch("main.APIHarnessV2")
     @patch("main.cloud")
-    def test_import_csv_handler_error(self, mock_cloud, mock_api_harness, mock_custom_storage):
+    def test_import_csv_handler_error(self, _mock_cloud, mock_api_harness, _mock_custom_storage):
         """Test CSV import handler with error."""
         # Setup mocks to raise exception
         mock_api_harness.side_effect = Exception("API connection failed")
@@ -176,7 +176,7 @@ class FnTestCase(unittest.TestCase):
 
     @patch("main.HostGroup")
     @patch("main.APIHarnessV2")
-    def test_on_create_api_error(self, mock_api_harness, mock_host_group):
+    def test_on_create_api_error(self, mock_api_harness, _mock_host_group):
         """Test host groups handler with API error."""
         # Setup mocks to simulate API initialization failure
         mock_api_harness.side_effect = Exception("API initialization failed")
@@ -194,7 +194,7 @@ class FnTestCase(unittest.TestCase):
     @patch("os.path.join")
     @patch("os.path.abspath")
     @patch("builtins.open", new_callable=mock_open, read_data="category,urls\ngaming,example.com;gaming.org")
-    def test_get_categories_success(self, mock_file, mock_abspath, mock_join, mock_dirname, mock_exists):
+    def test_get_categories_success(self, _mock_file, mock_abspath, mock_join, mock_dirname, mock_exists):
         """Test successful categories retrieval."""
         # Setup path mocks
         mock_dirname.return_value = "/test/dir"
