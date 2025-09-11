@@ -30,6 +30,47 @@ git clone https://github.com/CrowdStrike/foundry-sample-url-filtering
 cd foundry-sample-url-filtering
 ```
 
+### Deployment Process
+
+After cloning the repository, follow these steps to deploy the application:
+
+1. **Login to Foundry CLI**
+   ```shell
+   foundry login
+   ```
+   This will prompt you to enter your CrowdStrike API credentials.
+
+   <!-- Image placeholder for login process -->
+
+2. **Deploy the application**
+   ```shell
+   foundry apps deploy
+   ```
+   This command packages and deploys your application to Foundry.
+
+   <!-- Image placeholder for deployment process -->
+
+3. **Install the application**
+   - Navigate to the Falcon console
+   - Go to **Foundry** > **App Library**
+   - Find the URL Categorization app
+   - Click **Install**
+
+   <!-- Image placeholder for installation screen -->
+
+4. **Accept permissions**
+   - Review the requested permissions
+   - Click **Accept** to grant the necessary permissions
+   - The application requires access to firewall management, host groups, and devices
+
+   <!-- Image placeholder for permissions screen -->
+
+5. **Access the application**
+   - Once installed, the application will be available in the Falcon console
+   - Navigate to the app from the main menu
+
+   <!-- Image placeholder for accessing the app -->
+
 ### Required permissions
 
 This app requires the following API scopes:
