@@ -11,7 +11,7 @@ def transform_csv_row(row):
     """Transform a CSV row to match the Collection schema."""
     if len(row) < 2:
         raise ValidationError("CSV row must have at least 2 columns")
-    
+
     category = row[0].strip()
     urls = row[1]
 

@@ -2,9 +2,10 @@
 
 import importlib
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 
 from crowdstrike.foundry.function import Request
+from exceptions import FirewallAPIError, CSVProcessingError
 
 import main
 
@@ -32,18 +33,13 @@ class TestMainHandlers(unittest.TestCase):
     @patch("main.process_csv_records")
     @patch("main.CustomStorage")
     @patch("main.APIHarnessV2")
-    @patch("main.cloud")
-    @patch("os.path.dirname")
-    @patch("os.path.join")
-    @patch("os.path.abspath")
-    def test_import_csv_handler_success(self, mock_abspath, mock_join, mock_dirname,
-                                      mock_cloud, mock_api_harness, mock_custom_storage, mock_process):
+    @patch("os.path")
+    def test_import_csv_handler_success(self, mock_path, mock_api_harness, mock_custom_storage, mock_process):
         """Test successful CSV import handler."""
         # Setup mocks
-        mock_dirname.return_value = "/test/dir"
-        mock_join.return_value = "/test/dir/output.csv"
-        mock_abspath.return_value = "/test/dir/main.py"
-        mock_cloud.return_value = "https://api.crowdstrike.com"
+        mock_path.dirname.return_value = "/test/dir"
+        mock_path.join.return_value = "/test/dir/output.csv"
+        mock_path.abspath.return_value = "/test/dir/main.py"
 
         mock_api_client = MagicMock()
         mock_api_harness.return_value = mock_api_client
@@ -100,7 +96,6 @@ class TestMainHandlers(unittest.TestCase):
     @patch("main.get_host_groups")
     def test_on_create_api_error(self, mock_get_host_groups):
         """Test host groups handler with API error."""
-        from exceptions import FirewallAPIError
         mock_get_host_groups.side_effect = FirewallAPIError("API initialization failed")
 
         request = Request()
@@ -112,16 +107,14 @@ class TestMainHandlers(unittest.TestCase):
         self.assertIn("Failed to retrieve host groups", response.body["error"])
 
     @patch("main.read_categories_from_csv")
-    @patch("os.path.dirname")
-    @patch("os.path.join")
-    @patch("os.path.abspath")
-    def test_get_categories_success(self, mock_abspath, mock_join, mock_dirname, mock_read_csv):
+    @patch("os.path")
+    def test_get_categories_success(self, mock_path, mock_read_csv):
         """Test successful categories retrieval."""
         # Setup path mocks
-        mock_dirname.return_value = "/test/dir"
-        mock_join.return_value = "/test/dir/output.csv"
-        mock_abspath.return_value = "/test/dir/main.py"
-        
+        mock_path.dirname.return_value = "/test/dir"
+        mock_path.join.return_value = "/test/dir/output.csv"
+        mock_path.abspath.return_value = "/test/dir/main.py"
+
         mock_read_csv.return_value = {"gaming": "example.com;gaming.org"}
 
         request = Request()
@@ -134,18 +127,14 @@ class TestMainHandlers(unittest.TestCase):
         self.assertEqual(response.body["categories"]["gaming"], "example.com;gaming.org")
 
     @patch("main.read_categories_from_csv")
-    @patch("os.path.dirname")
-    @patch("os.path.join")
-    @patch("os.path.abspath")
-    def test_get_categories_file_not_found(self, mock_abspath, mock_join, mock_dirname, mock_read_csv):
+    @patch("os.path")
+    def test_get_categories_file_not_found(self, mock_path, mock_read_csv):
         """Test categories retrieval when CSV file doesn't exist."""
-        from exceptions import CSVProcessingError
-        
         # Setup path mocks
-        mock_dirname.return_value = "/test/dir"
-        mock_join.return_value = "/test/dir/output.csv"
-        mock_abspath.return_value = "/test/dir/main.py"
-        
+        mock_path.dirname.return_value = "/test/dir"
+        mock_path.join.return_value = "/test/dir/output.csv"
+        mock_path.abspath.return_value = "/test/dir/main.py"
+
         mock_read_csv.side_effect = CSVProcessingError("CSV file not found at: /test/dir/output.csv")
 
         request = Request()
@@ -239,9 +228,9 @@ class TestMainHandlers(unittest.TestCase):
             "urls": "example.com",
             "policyName": "Test Policy"
         }
-        
+
         result = main.validate_create_rule_request(request)
-        
+
         self.assertNotIn("error", result)
         self.assertEqual(result["host_group_id"], "host-123")
         self.assertEqual(result["urls"], "example.com")
@@ -250,9 +239,9 @@ class TestMainHandlers(unittest.TestCase):
     def test_validate_create_rule_request_no_body(self):
         """Test request validation with no body."""
         request = Request()
-        
+
         result = main.validate_create_rule_request(request)
-        
+
         self.assertIn("error", result)
         self.assertEqual(result["error"], "Request body is required")
 

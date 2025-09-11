@@ -82,7 +82,7 @@ class TestCSVProcessor(unittest.TestCase):
     def test_process_csv_records_file_not_found(self):
         """Test CSV processing with non-existent file."""
         mock_customobjects = MagicMock()
-        
+
         with self.assertRaises(CSVProcessingError) as context:
             process_csv_records(
                 csv_path="/nonexistent/path.csv",
@@ -95,9 +95,9 @@ class TestCSVProcessor(unittest.TestCase):
     def test_read_categories_from_csv_success(self, mock_exists, _mock_file):
         """Test successful categories reading from CSV."""
         mock_exists.return_value = True
-        
+
         result = read_categories_from_csv("/fake/path.csv")
-        
+
         self.assertIn("gaming", result)
         self.assertEqual(result["gaming"], "example.com;gaming.org")
 

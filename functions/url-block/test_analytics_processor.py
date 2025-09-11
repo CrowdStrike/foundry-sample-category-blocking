@@ -2,13 +2,12 @@
 
 import unittest
 from unittest.mock import patch, MagicMock
-from datetime import datetime
 
 from analytics_processor import (
     initialize_firewall_management, fetch_firewall_events, analyze_domain_events,
     prepare_visualization_data, generate_domain_analytics
 )
-from exceptions import AnalyticsError, FirewallAPIError
+from exceptions import FirewallAPIError
 
 
 class TestAnalyticsProcessor(unittest.TestCase):
@@ -24,18 +23,18 @@ class TestAnalyticsProcessor(unittest.TestCase):
         mock_api_harness.return_value = mock_falcon
         mock_mgmt = MagicMock()
         mock_firewall_mgmt.return_value = mock_mgmt
-        
+
         result = initialize_firewall_management()
-        
+
         self.assertEqual(result, mock_mgmt)
         mock_api_harness.assert_called_once_with(debug=True)
 
     @patch("analytics_processor.FirewallManagement")
     @patch("analytics_processor.APIHarnessV2")
-    def test_initialize_firewall_management_error(self, mock_api_harness, mock_firewall_mgmt):
+    def test_initialize_firewall_management_error(self, mock_api_harness, _mock_firewall_mgmt):
         """Test firewall management initialization error."""
         mock_api_harness.side_effect = Exception("Connection failed")
-        
+
         with self.assertRaises(FirewallAPIError) as context:
             initialize_firewall_management()
         self.assertIn("Failed to initialize firewall management", str(context.exception))
@@ -45,13 +44,13 @@ class TestAnalyticsProcessor(unittest.TestCase):
         """Test successful firewall events fetching."""
         mock_mgmt = MagicMock()
         mock_init_mgmt.return_value = mock_mgmt
-        
+
         # Mock query response
         mock_mgmt.query_events.return_value = {
             'status_code': 200,
             'body': {'resources': ['event-1', 'event-2']}
         }
-        
+
         # Mock get events response
         mock_mgmt.get_events.return_value = {
             'status_code': 200,
@@ -68,9 +67,9 @@ class TestAnalyticsProcessor(unittest.TestCase):
                 ]
             }
         }
-        
+
         result = fetch_firewall_events(days_back=1, limit=100)
-        
+
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]['domain'], 'example.com')
         self.assertEqual(result[0]['host_name'], 'test-host')
@@ -95,9 +94,9 @@ class TestAnalyticsProcessor(unittest.TestCase):
                 'rule_name': 'rule1'
             }
         ]
-        
+
         result = analyze_domain_events(events)
-        
+
         self.assertIn('domain_analysis', result)
         self.assertIn('top_domains', result)
         self.assertIn('total_blocks', result)
@@ -116,9 +115,9 @@ class TestAnalyticsProcessor(unittest.TestCase):
             'total_blocks': 8,
             'unique_hosts': {'host1', 'host2'}
         }
-        
+
         result = prepare_visualization_data(analysis_data)
-        
+
         self.assertIn('bar_chart', result)
         self.assertIn('comparison_chart', result)
         self.assertIn('summary', result)
@@ -134,15 +133,15 @@ class TestAnalyticsProcessor(unittest.TestCase):
         # Mock the chain of function calls
         mock_events = [{'domain': 'example.com'}]
         mock_fetch_events.return_value = mock_events
-        
+
         mock_analysis = {'domain_analysis': {'example.com': {'visit_count': 1}}}
         mock_analyze_events.return_value = mock_analysis
-        
+
         mock_viz_data = {'bar_chart': {'domains': ['example.com'], 'visits': [1]}}
         mock_prepare_viz.return_value = mock_viz_data
-        
+
         result = generate_domain_analytics()
-        
+
         self.assertIn('analysis', result)
         self.assertIn('visualization_data', result)
         mock_fetch_events.assert_called_once_with(days_back=15)
@@ -153,9 +152,9 @@ class TestAnalyticsProcessor(unittest.TestCase):
     def test_generate_domain_analytics_no_events(self, mock_fetch_events):
         """Test domain analytics generation with no events."""
         mock_fetch_events.return_value = []
-        
+
         result = generate_domain_analytics()
-        
+
         self.assertIn('analysis', result)
         self.assertIn('visualization_data', result)
         self.assertEqual(result['analysis'], {})
