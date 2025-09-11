@@ -174,4 +174,7 @@ parsers: []
 logscale:
     saved_searches: []
 lookup_files: []
-docs: {}
+docs:
+    id: 6a5ef2fdf9474e8e8533cb9962390525
+    path: app_docs
+    entrypoint: README.md

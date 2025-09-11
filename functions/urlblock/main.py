@@ -123,7 +123,7 @@ def import_csv_handler(request: Request) -> Response:
                 "successful_imports": results["success_count"],
                 "failed_imports": results["error_count"],
                 "collection_name": "domain",
-                "source_file": csv_filename,
+                "source_file": csv_file,
                 "import_timestamp": int(time.time())
             },
             code=200
