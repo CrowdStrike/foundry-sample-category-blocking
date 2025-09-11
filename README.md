@@ -104,7 +104,7 @@ Used by the app to define the logic of rule creation and interaction with Falcon
 
 Python functions:
 
-reactblock: Fetches host groups information using
+url-block: Fetches host groups information using
 categories: Fetches categories using FalconPy from collections
 create-rule: Create Firewall management blocking rule with selected category using FalconPy
 domain-analytics: Fetches domain analytics information
@@ -124,8 +124,8 @@ A UI Page on dedicated for this application
 
 # Directory structure
 collections. Schemas used in the collections used by this app.
-ui/pages/reactblocking. Single Page Application which serves as the frontend of the app.
-functions/reactblock. Python handlers to manage logic operations of the app.
+ui/pages/category-blocking. Single Page Application which serves as the frontend of the app.
+functions/url-block. Python handlers to manage logic operations of the app.
 
 ## Foundry resources
 

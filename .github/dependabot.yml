@@ -1,7 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: pip
-    directory: "/functions/reactblock/"
+    directory: "/functions/url-block/"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -9,7 +9,7 @@ updates:
       timezone: "UTC"
   - package-ecosystem: npm
     directories:
-      - "/ui/pages/reactblocking/"
+      - "/ui/pages/categorization-blocking/"
     open-pull-requests-limit: 10
     schedule:
       interval: "weekly"

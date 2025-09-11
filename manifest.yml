@@ -18,15 +18,15 @@ ignored:
     - ui/(extensions|pages)/.*?/tsconfig\..*\.json
     - ui/(extensions|pages)/.*?/.*?\.(md|log|lock|cjs)
 ui:
-    homepage: pages.reactblocking
+    homepage: pages.category-blocking
     extensions: []
     pages:
-        reactblocking:
+        category-blocking:
             id: 29847c2ff6254d0db5a9b02330eb6c34
-            name: reactblocking
+            name: category-blocking
             description: react blocking test
-            path: ui/pages/reactblocking/src/dist
-            entrypoint: ui/pages/reactblocking/src/dist/index.html
+            path: ui/pages/category-blocking/src/dist
+            entrypoint: ui/pages/category-blocking/src/dist/index.html
             content_security_policy:
                 connect-src: []
                 style-src: []
@@ -44,7 +44,7 @@ ui:
             - path: /
               name: URL Blocking
               permissions: []
-              ref: pages.reactblocking
+              ref: pages.category-blocking
 api_integrations: []
 rtr_scripts: []
 collections:
@@ -74,16 +74,16 @@ auth:
     roles: []
 functions:
     - id: 6c474ae256a941109a7c57bb5be84f47
-      name: reactblock
+      name: url-block
       config: null
       description: react block
-      path: functions/reactblock
+      path: functions/url-block
       environment_variables: {}
       handlers:
-        - name: reactblock
+        - name: url-block
           description: react block
           method: GET
-          api_path: /reactblock
+          api_path: /url-block
           request_schema: null
           response_schema: null
           workflow_integration: null
