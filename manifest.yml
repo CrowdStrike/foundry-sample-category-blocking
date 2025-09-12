@@ -188,4 +188,8 @@ lookup_files: []
 docs:
     id: 6a5ef2fdf9474e8e8533cb9962390525
     path: app_docs
+<<<<<<< HEAD
     entrypoint: Readme.md
+=======
+    entrypoint: README.md
+>>>>>>> jas

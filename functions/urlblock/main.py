@@ -1,45 +1,54 @@
-# Foundry specific imports first
-from crowdstrike.foundry.function import Function, Request, Response, APIError, cloud
+"""
+URL Block Function Module
+
+This module provides FUNCtionality for managing URL blocking rules in CrowdStrike Falcon.
+It includes handlers for creating and managing categories, relationships, and firewall rules.
+"""
+
+# Standard library imports
+import csv
+import os
+import time
+import traceback
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from logging import Logger
 
 # Third-party imports
-from falconpy import APIHarnessV2
-from falconpy import HostGroup
-from falconpy import FirewallManagement
-from falconpy import FirewallPolicies
-from falconpy import CustomStorage
-
-# Standard library import
-import traceback
-import os
-import csv
-import json
-
-import time
-
-from datetime import datetime, timedelta
 import pytz
-from collections import Counter, defaultdict
-from crowdstrike.foundry.function import Function, Request, Response, APIError, cloud
-from falconpy import APIHarnessV2
-from falconpy import CustomStorage
-from datetime import datetime
 
+# CrowdStrike imports
+from crowdstrike.foundry.function import (
+    APIError,
+    Function,
+    Request,
+    Response,
+    cloud,
+)
+from falconpy import (
+    APIHarnessV2,
+    CustomStorage,
+    FirewallManagement,
+    FirewallPolicies,
+    HostGroup,
+)
 
-func = Function.instance()
+# Initialize FUNCtion
+FUNC = Function.instance()
+
 
 def transform_csv_row(row):
     """Transform a CSV row to match the Collection schema."""
     category = row[0].strip()
     urls = row[1]
-    
+
     record = {
         "category": category,
         "domain": urls,  # Keep all URLs in domain field
         "wildcard_domain": "",  # Add wildcard for category
         "imported_at": int(time.time())
     }
-    
+
     return record
 
 def validate_record(record):
@@ -54,22 +63,22 @@ def process_csv_records(csv_path, customobjects, collection_name="domain", colle
     success_count = 0
     error_count = 0
     total_rows = 0
-    
+
     try:
         with open(csv_path, 'r', encoding='utf-8') as file:
             csv_reader = csv.reader(file)
             next(csv_reader)  # Skip header row
-            
+
             for row in csv_reader:
                 total_rows += 1
                 try:
                     if len(row) >= 2:
                         # Transform row into record
                         record = transform_csv_row(row)
-                        
+
                         # Validate record
                         validate_record(record)
-                        
+
                         # Create collection object
                         response = customobjects.PutObject(
                             body=record,
@@ -78,36 +87,36 @@ def process_csv_records(csv_path, customobjects, collection_name="domain", colle
                             object_key=record['category'],
                             limit=1000
                         )
-                        
+
                         success_count += 1
-                        
+
                 except Exception as e:
                     error_count += 1
                     print(f"Error processing row {total_rows}: {str(e)}")
                     continue
-                    
+
     except Exception as e:
         raise Exception(f"Error reading CSV file: {str(e)}")
-        
+
     return {
         "total_rows": total_rows,
         "success_count": success_count,
         "error_count": error_count
     }
 
-@func.handler(method='POST', path='/import-csv')
+@FUNC.handler(method='POST', path='/import-csv')
 def import_csv_handler(request: Request) -> Response:
     """Import domain categorization CSV data into a Foundry Collection."""
-    
+
     try:
         # Initialize API client
         api_client = APIHarnessV2()
         customobjects = CustomStorage(api_client, base_url=cloud())
-        
+
         # Get the directory where main.py is located
         current_dir = os.path.dirname(os.path.abspath(__file__))
         csv_file = os.path.join(current_dir, 'output.csv')
-        
+
         # Process CSV records
         results = process_csv_records(
             csv_path=csv_file,
@@ -115,7 +124,7 @@ def import_csv_handler(request: Request) -> Response:
             collection_name="domain",
             collection_version="v2.0"
         )
-        
+
         return Response(
             body={
                 "success": True,
@@ -123,19 +132,19 @@ def import_csv_handler(request: Request) -> Response:
                 "successful_imports": results["success_count"],
                 "failed_imports": results["error_count"],
                 "collection_name": "domain",
-                "source_file": csv_filename,
+                "source_file": csv_file,
                 "import_timestamp": int(time.time())
             },
             code=200
         )
-        
+
     except Exception as e:
         return Response(
             code=500,
             errors=[APIError(code=500, message=f"CSV import failed: {str(e)}")]
         )
 
-@func.handler(method='GET', path='/urlblock')
+@FUNC.handler(method='GET', path='/urlblock')
 def on_create(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     logger.info("Starting host groups handler")
     try:
@@ -158,11 +167,11 @@ def on_create(request: Request, config: [dict[str, any], None], logger: Logger) 
         try:
             response = hostgroup.query_host_groups()
             logger.info(f"Query response status: {response.get('status_code')}")
-            
+
             if response["status_code"] == 200:
                 groups = response["body"]["resources"]
                 groups_details = hostgroup.get_host_groups(ids=groups)
-                
+
                 # Format host groups data
                 host_groups_list = []
                 for group in groups_details["body"]["resources"]:
@@ -170,7 +179,7 @@ def on_create(request: Request, config: [dict[str, any], None], logger: Logger) 
                         "id": group["id"],
                         "name": group["name"]
                     })
-                
+
                 logger.info(f"Successfully retrieved {len(host_groups_list)} host groups")
                 return Response(
                     code=200,
@@ -183,7 +192,7 @@ def on_create(request: Request, config: [dict[str, any], None], logger: Logger) 
                     code=response["status_code"],
                     body={"error": error_msg}
                 )
-                
+
         except Exception as e:
             logger.error(f"Error querying host groups: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
@@ -195,7 +204,7 @@ def on_create(request: Request, config: [dict[str, any], None], logger: Logger) 
                     "traceback": traceback.format_exc()
                 }
             )
-        
+
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -208,16 +217,16 @@ def on_create(request: Request, config: [dict[str, any], None], logger: Logger) 
             }
         )
 
-@func.handler(method='GET', path='/categories')
+@FUNC.handler(method='GET', path='/categories')
 def get_categories(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     logger.info("Starting categories handler")
     try:
         # Get the directory where main.py is located
         current_dir = os.path.dirname(os.path.abspath(__file__))
         csv_file = os.path.join(current_dir, 'output.csv')
-        
+
         logger.info(f"Looking for CSV file at: {csv_file}")
-        
+
         # Check if file exists
         if not os.path.exists(csv_file):
             logger.error(f"CSV file not found at: {csv_file}")
@@ -235,12 +244,12 @@ def get_categories(request: Request, config: [dict[str, any], None], logger: Log
                 csv_reader = csv.reader(f)
                 headers = next(csv_reader)  # Skip header row
                 logger.info(f"CSV headers: {headers}")
-                
+
                 for row in csv_reader:
                     if len(row) >= 2:  # Ensure row has at least 2 columns
                         category = row[0].strip()
                         urls = row[1].strip()
-                        
+
                         # Clean and format URLs
                         url_list = [url.strip() for url in urls.split(';') if url.strip()]
                         if url_list:  # Only add if there are valid URLs
@@ -249,14 +258,14 @@ def get_categories(request: Request, config: [dict[str, any], None], logger: Log
 
             logger.info(f"Number of categories found: {len(categories_dict)}")
             logger.info(f"Categories: {list(categories_dict.keys())}")
-            
+
             return Response(
                 code=200,
                 body={
                     'categories': categories_dict
                 }
             )
-            
+
         except Exception as csv_error:
             logger.error(f"Error reading CSV file: {str(csv_error)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
@@ -267,7 +276,7 @@ def get_categories(request: Request, config: [dict[str, any], None], logger: Log
                     "details": str(csv_error)
                 }
             )
-        
+
     except Exception as e:
         logger.error(f"Error reading categories: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -279,7 +288,7 @@ def get_categories(request: Request, config: [dict[str, any], None], logger: Log
             }
         )
 
-@func.handler(method='POST', path='/create-rule')
+@FUNC.handler(method='POST', path='/create-rule')
 def create_rule(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     logger.info("Starting create rule handler")
     try:
@@ -312,7 +321,7 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
         url_list = [url.strip() for url in urls.split(';') if url.strip()]
         if not url_list:
             return Response(code=400, body={"error": "No valid URLs provided"})
-        
+
         clean_urls = ';'.join(url_list)
         logger.info(f"Cleaned URLs: {clean_urls}")
 
@@ -328,12 +337,12 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
             name=policy_name,
             platform_name="Windows"
         )
-        
+
         logger.info(f"Policy creation response: {policy_response}")
-        
+
         if "body" not in policy_response or "resources" not in policy_response["body"]:
             raise Exception("Invalid policy creation response")
-            
+
         policy_id = policy_response["body"]["resources"][0]["id"]
         logger.info(f"Created policy: {policy_id}")
 
@@ -342,8 +351,8 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
         logger.info(f"Policy enable response: {enable_response}")
 
         add_host_response = policies.perform_action(
-            action_name="add-host-group", 
-            group_id=host_group_id, 
+            action_name="add-host-group",
+            group_id=host_group_id,
             ids=policy_id
         )
         logger.info(f"Add host group response: {add_host_response}")
@@ -424,8 +433,8 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
             }
         )
 
-    
-@func.handler(method='GET', path='/domain-analytics')
+
+@FUNC.handler(method='GET', path='/domain-analytics')
 def get_domain_analytics(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     logger.info("Starting domain analytics handler")
     try:
@@ -469,7 +478,7 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
 
                 event_ids = query_response['body']['resources']
                 events_response = firewall_mgmt.get_events(ids=event_ids)
-                
+
                 if events_response['status_code'] == 200:
                     events = events_response['body']['resources']
                     for event in events:
@@ -482,7 +491,7 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
                                 'policy_name': event.get('policy_name', 'Unknown'),
                                 'rule_name': event.get('rule_name', 'Unknown')
                             })
-                
+
                 offset += limit
                 if len(event_ids) < limit:
                     break
@@ -495,27 +504,27 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
 
         # Analyze domains
         from collections import Counter, defaultdict
-        
+
         # Count domain occurrences
         domain_counter = Counter(event['domain'] for event in all_events)
         top_domains = domain_counter.most_common(20)  # Get top 20 domains
-        
+
         # Initialize analysis data
         domain_analysis = {}
         daily_blocks = defaultdict(int)
         total_blocks = 0
         unique_hosts = set()
-        
+
         # Analyze each domain
         for domain, count in top_domains:
             domain_events = [e for e in all_events if e['domain'] == domain]
             unique_ips = len(set(e['remote_address'] for e in domain_events))
             domain_hosts = len(set(e['host_name'] for e in domain_events))
-            
+
             # Get timestamps for first and last blocks
-            timestamps = [datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00')) 
+            timestamps = [datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00'))
                         for e in domain_events]
-            
+
             domain_analysis[domain] = {
                 'visit_count': count,  # Changed from block_count to visit_count to match React component
                 'unique_ips': unique_ips,
@@ -525,11 +534,11 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
                 'policy_name': domain_events[0].get('policy_name', 'Unknown'),
                 'rule_name': domain_events[0].get('rule_name', 'Unknown')
             }
-            
+
             # Update totals
             total_blocks += count
             unique_hosts.update(e['host_name'] for e in domain_events)
-            
+
             # Group by date for timeline
             for timestamp in timestamps:
                 date_str = timestamp.date().isoformat()
@@ -555,7 +564,7 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
 
         logger.info("Analytics processing completed successfully")
         logger.info(f"Returning data structure: {visualization_data.keys()}")
-        
+
         return Response(
             code=200,
             body={
@@ -577,14 +586,14 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
         )
 
 
-    
-@func.handler(method='GET', path='/list-categories')
+
+@FUNC.handler(method='GET', path='/list-categories')
 def list_categories(request: Request) -> Response:
     try:
         # Initialize API client
         api_client = APIHarnessV2()
         customobjects= CustomStorage(api_client, base_url=cloud())
-        
+
         # Set headers if APP_ID is available
         headers = {}
         if os.environ.get("APP_ID"):
@@ -636,7 +645,7 @@ def list_categories(request: Request) -> Response:
         # Extract unique categories
         categories = set()
         domains = []
-        
+
         for item in resources:
             try:
                 if item and isinstance(item, dict):
@@ -678,13 +687,13 @@ def list_categories(request: Request) -> Response:
         )
 
 
-@func.handler(method='GET', path='/search-categories')
+@FUNC.handler(method='GET', path='/search-categories')
 def search_categories(request: Request) -> Response:
     try:
         # Initialize API client
         api_client = APIHarnessV2()
         customobjects= CustomStorage(api_client, base_url=cloud())
-        
+
         # Set headers if APP_ID is available
         headers = {}
         if os.environ.get("APP_ID"):
@@ -720,9 +729,9 @@ def search_categories(request: Request) -> Response:
             code=500,
             errors=[APIError(code=500, message=f"Error searching collection: {str(e)}")]
         )
-    
 
-@func.handler(method='POST', path='/manage-category')
+
+@FUNC.handler(method='POST', path='/manage-category')
 def manage_category(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     """Create or update a category with comma-separated URLs"""
     logger.info("Starting manage category handler")
@@ -818,7 +827,7 @@ def manage_category(request: Request, config: [dict[str, any], None], logger: Lo
             }
         )
 
-@func.handler(method='POST', path='/manage-relationship')
+@FUNC.handler(method='POST', path='/manage-relationship')
 def manage_relationship(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     """Create or update relationship between category, rule group, and host"""
     logger.info("Starting relationship management")
@@ -844,7 +853,7 @@ def manage_relationship(request: Request, config: [dict[str, any], None], logger
         # Validate required fields according to schema
         required_fields = ['category_name', 'rule_group_id', 'host_group_id']
         missing_fields = [field for field in required_fields if not relationship_record[field]]
-        
+
         if missing_fields:
             logger.error(f"Missing required fields: {missing_fields}")
             return Response(
@@ -857,7 +866,7 @@ def manage_relationship(request: Request, config: [dict[str, any], None], logger
 
         # Generate unique key
         relationship_key = f"{relationship_record['category_name']}_{relationship_record['rule_group_id']}_{relationship_record['host_group_id']}"
-        
+
         logger.info(f"Creating relationship with key: {relationship_key}")
         logger.info(f"Relationship record: {relationship_record}")
 
@@ -912,7 +921,7 @@ def manage_relationship(request: Request, config: [dict[str, any], None], logger
             }
         )
 
-@func.handler(method='GET', path='/get-relationship')
+@FUNC.handler(method='GET', path='/get-relationship')
 def get_relationship(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     """Get all relationship and format for graph visualization"""
     try:
@@ -929,7 +938,7 @@ def get_relationship(request: Request, config: [dict[str, any], None], logger: L
             raise Exception("Failed to fetch relationship")
 
         relationship = response.get('resources', [])
-        
+
         # Transform data for graph visualization
         nodes = []
         links = []
@@ -995,9 +1004,9 @@ def get_relationship(request: Request, config: [dict[str, any], None], logger: L
             }
         )
 
-#Updates rules 
+#Updates rules
 
-@func.handler(method='POST', path='/update-rules')
+@FUNC.handler(method='POST', path='/update-rules')
 def update_rules(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
     """Update rules in rule groups with only newly added URLs"""
     logger.info("Starting rule update handler")
@@ -1133,9 +1142,19 @@ def update_rules(request: Request, config: [dict[str, any], None], logger: Logge
 
 
 
-@func.handler(method='GET', path='/healthz')
+@FUNC.handler(method='GET', path='/healthz')
 def healthz(request, config):
+    """
+    Health check endpoint.
+
+    Args:
+        request (Request): The incoming request
+        config (dict): Configuration dictionary
+
+    Returns:
+        Response: 200 OK response indicating service is healthy
+    """
     return Response(code=200)
 
 if __name__ == '__main__':
-    func.run()
+    FUNC.run()
