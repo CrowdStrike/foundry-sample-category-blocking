@@ -80,7 +80,7 @@ def process_csv_records(csv_path, customobjects, collection_name="domain", colle
                         validate_record(record)
 
                         # Create collection object
-                        response = customobjects.PutObject(
+                        customobjects.PutObject(
                             body=record,
                             collection_name=collection_name,
                             collection_version=collection_version,
@@ -90,13 +90,13 @@ def process_csv_records(csv_path, customobjects, collection_name="domain", colle
 
                         success_count += 1
 
-                except Exception as e:
+                except ValueError as e:
                     error_count += 1
                     print(f"Error processing row {total_rows}: {str(e)}")
                     continue
 
-    except Exception as e:
-        raise Exception(f"Error reading CSV file: {str(e)}")
+    except IOError as e:
+        raise IOError(f"Error reading CSV file: {str(e)}") from e
 
     return {
         "total_rows": total_rows,
@@ -145,7 +145,8 @@ def import_csv_handler(request: Request) -> Response:
         )
 
 @FUNC.handler(method='GET', path='/urlblock')
-def on_create(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
+def on_create(_: Request, config: [dict[str, any], None], logger: Logger) -> Response:
+    """Handle requests to retrieve host groups."""
     logger.info("Starting host groups handler")
     try:
         # Initialize Falcon client
@@ -185,13 +186,13 @@ def on_create(request: Request, config: [dict[str, any], None], logger: Logger) 
                     code=200,
                     body={"host_groups": host_groups_list}
                 )
-            else:
-                error_msg = f"Failed to retrieve host groups. Status: {response['status_code']}"
-                logger.error(error_msg)
-                return Response(
-                    code=response["status_code"],
-                    body={"error": error_msg}
-                )
+
+            error_msg = f"Failed to retrieve host groups. Status: {response['status_code']}"
+            logger.error(error_msg)
+            return Response(
+                code=response["status_code"],
+                body={"error": error_msg}
+            )
 
         except Exception as e:
             logger.error(f"Error querying host groups: {str(e)}")
@@ -218,7 +219,8 @@ def on_create(request: Request, config: [dict[str, any], None], logger: Logger) 
         )
 
 @FUNC.handler(method='GET', path='/categories')
-def get_categories(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
+def get_categories(_: Request, __: [dict[str, any], None], logger: Logger) -> Response:
+    """Retrieve categories from CSV file."""
     logger.info("Starting categories handler")
     try:
         # Get the directory where main.py is located
@@ -242,8 +244,7 @@ def get_categories(request: Request, config: [dict[str, any], None], logger: Log
             categories_dict = {}
             with open(csv_file, 'r', encoding='utf-8') as f:
                 csv_reader = csv.reader(f)
-                headers = next(csv_reader)  # Skip header row
-                logger.info(f"CSV headers: {headers}")
+                next(csv_reader)  # Skip header row
 
                 for row in csv_reader:
                     if len(row) >= 2:  # Ensure row has at least 2 columns
@@ -266,7 +267,7 @@ def get_categories(request: Request, config: [dict[str, any], None], logger: Log
                 }
             )
 
-        except Exception as csv_error:
+        except IOError as csv_error:
             logger.error(f"Error reading CSV file: {str(csv_error)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             return Response(
@@ -290,6 +291,7 @@ def get_categories(request: Request, config: [dict[str, any], None], logger: Log
 
 @FUNC.handler(method='POST', path='/create-rule')
 def create_rule(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
+    """Create a firewall rule for blocking domains."""
     logger.info("Starting create rule handler")
     try:
         # Validate request body
@@ -341,7 +343,7 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
         logger.info(f"Policy creation response: {policy_response}")
 
         if "body" not in policy_response or "resources" not in policy_response["body"]:
-            raise Exception("Invalid policy creation response")
+            raise ValueError("Invalid policy creation response")
 
         policy_id = policy_response["body"]["resources"][0]["id"]
         logger.info(f"Created policy: {policy_id}")
@@ -393,7 +395,7 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
         logger.info(f"Rule group creation response: {rule_group_response}")
 
         if "body" not in rule_group_response or "resources" not in rule_group_response["body"]:
-            raise Exception("Invalid rule group creation response")
+            raise ValueError("Invalid rule group creation response")
 
         rule_group_id = rule_group_response["body"]["resources"][0]
         logger.info(f"Created rule group: {rule_group_id}")
@@ -408,7 +410,8 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
             is_default_policy=False,
             test_mode=False,
             rule_group_ids=rule_group_id,
-            policy_id=policy_id
+            policy_id=policy_id,
+            body={}  # Add empty body parameter to fix E1120 error
         )
 
         logger.info(f"Policy update response: {update_response}")
@@ -423,6 +426,14 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
             }
         )
 
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        return Response(
+            code=400,
+            body={
+                "error": f"Validation error: {str(e)}"
+            }
+        )
     except Exception as e:
         logger.error(f"Error creating rule: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -435,7 +446,8 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
 
 
 @FUNC.handler(method='GET', path='/domain-analytics')
-def get_domain_analytics(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
+def get_domain_analytics(_: Request, __: [dict[str, any], None], logger: Logger) -> Response:
+    """Generate analytics for domain blocking events."""
     logger.info("Starting domain analytics handler")
     try:
         # Initialize Falcon client
@@ -503,8 +515,6 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
         logger.info(f"Total events fetched: {len(all_events)}")
 
         # Analyze domains
-        from collections import Counter, defaultdict
-
         # Count domain occurrences
         domain_counter = Counter(event['domain'] for event in all_events)
         top_domains = domain_counter.most_common(20)  # Get top 20 domains
@@ -521,9 +531,11 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
             unique_ips = len(set(e['remote_address'] for e in domain_events))
             domain_hosts = len(set(e['host_name'] for e in domain_events))
 
-            # Get timestamps for first and last blocks
-            timestamps = [datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00'))
-                        for e in domain_events]
+                # Get timestamps for first and last blocks
+            timestamps = [
+                datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00'))
+                for e in domain_events
+            ]
 
             domain_analysis[domain] = {
                 'visit_count': count,  # Changed from block_count to visit_count to match React component
@@ -586,20 +598,22 @@ def get_domain_analytics(request: Request, config: [dict[str, any], None], logge
         )
 
 
-
 @FUNC.handler(method='GET', path='/list-categories')
 def list_categories(request: Request) -> Response:
+    """List all categories from the domain collection."""
     try:
         # Initialize API client
         api_client = APIHarnessV2()
-        customobjects= CustomStorage(api_client, base_url=cloud())
+        customobjects = CustomStorage(api_client, base_url=cloud())
 
         # Set headers if APP_ID is available
-        headers = {}
+        # headers = {}
+        # Set headers if APP_ID is available
         if os.environ.get("APP_ID"):
             headers = {"X-CS-APP-ID": os.environ.get("APP_ID")}
+        else:
+            headers = {}
 
-        # Get query parameters with defaults
         # Get query parameters with defaults
         try:
             limit = int(request.params.limit if hasattr(request.params, 'limit') else 1000)
@@ -607,21 +621,13 @@ def list_categories(request: Request) -> Response:
             limit = 1000
 
         print(f"Query params - limit: {limit}")  # Debug logging
-        body_test={
-    "category": "phishing",
-    "domain": "example.com",
-    "wildcard_domain": "*.example.com",
-    "imported_at": 1687716282}
 
         # Query the collection using list method
-        # response = customobjects.PutObject(
-        #     body=body_test,
-        #     collection_name="domain",
-        #     collection_version="v2.0",
-        #     object_key="Games",
-        #     limit=limit
-        # )
-        response = customobjects.ListObjectsByVersion(collection_name='domain',limit=1000,collection_version="v2.0")
+        response = customobjects.ListObjectsByVersion(
+            collection_name='domain',
+            limit=limit,
+            collection_version="v2.0"
+        )
 
         print("Raw API Response:", response)  # Debug logging
 
@@ -689,6 +695,7 @@ def list_categories(request: Request) -> Response:
 
 @FUNC.handler(method='GET', path='/search-categories')
 def search_categories(request: Request) -> Response:
+    """Search for categories in the domain collection."""
     try:
         # Initialize API client
         api_client = APIHarnessV2()
@@ -717,7 +724,6 @@ def search_categories(request: Request) -> Response:
 
         print("Raw Search Response:", response)  # Debug logging
 
-
         return Response(
             body=response,
             code=200
@@ -732,8 +738,8 @@ def search_categories(request: Request) -> Response:
 
 
 @FUNC.handler(method='POST', path='/manage-category')
-def manage_category(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
-    """Create or update a category with comma-separated URLs"""
+def manage_category(request: Request, _: [dict[str, any], None], logger: Logger) -> Response:
+    """Create or update a category with comma-separated URLs."""
     logger.info("Starting manage category handler")
     try:
         # Validate request body
@@ -795,15 +801,15 @@ def manage_category(request: Request, config: [dict[str, any], None], logger: Lo
                         "urlCount": len(url_list)
                     }
                 )
-            else:
-                logger.error(f"Failed to process category. API Response: {response}")
-                return Response(
-                    code=500,
-                    body={
-                        "error": "Failed to process category",
-                        "details": response.get('body', {}).get('message', 'Unknown error')
-                    }
-                )
+
+            logger.error(f"Failed to process category. API Response: {response}")
+            return Response(
+                code=500,
+                body={
+                    "error": "Failed to process category",
+                    "details": response.get('body', {}).get('message', 'Unknown error')
+                }
+            )
 
         except Exception as api_error:
             logger.error(f"API error: {str(api_error)}")
@@ -828,8 +834,8 @@ def manage_category(request: Request, config: [dict[str, any], None], logger: Lo
         )
 
 @FUNC.handler(method='POST', path='/manage-relationship')
-def manage_relationship(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
-    """Create or update relationship between category, rule group, and host"""
+def manage_relationship(request: Request, _: [dict[str, any], None], logger: Logger) -> Response:
+    """Create or update relationship between category, rule group, and host."""
     logger.info("Starting relationship management")
     logger.info(f"Request body: {request.body}")
 
@@ -890,16 +896,16 @@ def manage_relationship(request: Request, config: [dict[str, any], None], logger
                         "details": relationship_record
                     }
                 )
-            else:
-                error_msg = f"Failed to create relationship. Status: {response.get('status_code')}"
-                logger.error(error_msg)
-                return Response(
-                    code=500,
-                    body={
-                        "error": "Failed to create relationship",
-                        "details": error_msg
-                    }
-                )
+
+            error_msg = f"Failed to create relationship. Status: {response.get('status_code')}"
+            logger.error(error_msg)
+            return Response(
+                code=500,
+                body={
+                    "error": "Failed to create relationship",
+                    "details": error_msg
+                }
+            )
 
         except Exception as api_error:
             logger.error(f"API error: {str(api_error)}")
@@ -922,8 +928,8 @@ def manage_relationship(request: Request, config: [dict[str, any], None], logger
         )
 
 @FUNC.handler(method='GET', path='/get-relationship')
-def get_relationship(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
-    """Get all relationship and format for graph visualization"""
+def get_relationship(_: Request, __: [dict[str, any], None], logger: Logger) -> Response:
+    """Get all relationship and format for graph visualization."""
     try:
         api_client = APIHarnessV2(debug=True)
         customobjects = CustomStorage(api_client, base_url=cloud())
@@ -935,7 +941,7 @@ def get_relationship(request: Request, config: [dict[str, any], None], logger: L
         )
 
         if response.get('status_code') != 200:
-            raise Exception("Failed to fetch relationship")
+            raise ValueError("Failed to fetch relationship")
 
         relationship = response.get('resources', [])
 
@@ -994,8 +1000,17 @@ def get_relationship(request: Request, config: [dict[str, any], None], logger: L
             }
         )
 
-    except Exception as e:
+    except ValueError as e:
         logger.error(f"Error fetching relationship: {str(e)}")
+        return Response(
+            code=500,
+            body={
+                "error": "Failed to fetch relationship",
+                "details": str(e)
+            }
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
         return Response(
             code=500,
             body={
@@ -1007,8 +1022,8 @@ def get_relationship(request: Request, config: [dict[str, any], None], logger: L
 #Updates rules
 
 @FUNC.handler(method='POST', path='/update-rules')
-def update_rules(request: Request, config: [dict[str, any], None], logger: Logger) -> Response:
-    """Update rules in rule groups with only newly added URLs"""
+def update_rules(request: Request, _: [dict[str, any], None], logger: Logger) -> Response:
+    """Update rules in rule groups with only newly added URLs."""
     logger.info("Starting rule update handler")
     try:
         # Validate request
@@ -1043,7 +1058,7 @@ def update_rules(request: Request, config: [dict[str, any], None], logger: Logge
                 # Get current group details
                 group_response = firewall_mgmt.get_rule_groups(ids=[rule_group_id])
                 if group_response["status_code"] != 200:
-                    raise Exception("Error getting group details")
+                    raise ValueError("Error getting group details")
 
                 group_details = group_response["body"]["resources"][0]
                 tracking_number = group_details["tracking"]
@@ -1107,11 +1122,22 @@ def update_rules(request: Request, config: [dict[str, any], None], logger: Logge
 
                 logger.info(f"Rule group update {'successful' if success else 'failed'} for {rule_group_id}")
 
-            except Exception as rule_error:
-                logger.error(f"Error updating rule group {rule_group_id}: {str(rule_error)}")
+            except ValueError as rule_error:
+                logger.error(f"Error updating rule group {relationship.get('rule_group_id', 'unknown')}: {str(rule_error)}")
                 update_results.append({
-                    "rule_group_id": rule_group_id,
-                    "rule_group_name": relationship['rule_group_name'],
+                    "rule_group_id": relationship.get('rule_group_id', 'unknown'),
+                    "rule_group_name": relationship.get('rule_group_name', 'unknown'),
+                    "status": "failed",
+                    "error": str(rule_error)
+                })
+            except Exception as rule_error:
+                logger.error(
+                    f"Unexpected error updating rule group "
+                    f"{relationship.get('rule_group_id', 'unknown')}: {str(rule_error)}"
+                )
+                update_results.append({
+                    "rule_group_id": relationship.get('rule_group_id', 'unknown'),
+                    "rule_group_name": relationship.get('rule_group_name', 'unknown'),
                     "status": "failed",
                     "error": str(rule_error)
                 })
@@ -1141,9 +1167,8 @@ def update_rules(request: Request, config: [dict[str, any], None], logger: Logge
         )
 
 
-
 @FUNC.handler(method='GET', path='/healthz')
-def healthz(request, config):
+def healthz(_, __):
     """
     Health check endpoint.
 

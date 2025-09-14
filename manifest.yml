@@ -1,5 +1,5 @@
-app_id: f5308005a62b45d49904fa9aa01bb7c1
-name: categoryblocking
+app_id: 657423f8ca55499da6e0c827edf8d9fe
+name: Category Blocking
 description: react test
 logo: images/logo.png
 vendor: CrowdStrike
@@ -22,7 +22,7 @@ ui:
     extensions: []
     pages:
         urlblocking:
-            id: 29847c2ff6254d0db5a9b02330eb6c34
+            id: 67b215e2b3c647268a4a816eb23748d9
             name: urlblocking
             description: react blocking test
             path: ui/pages/urlblocking/src/dist
@@ -39,7 +39,7 @@ ui:
             permissions: []
     dashboards: {}
     navigation:
-        id: 2ce51e19660f47979c0076677999349c
+        id: 053282adf36c4072b5baa837d7e61583
         links:
             - path: /
               name: URL Blocking
@@ -73,7 +73,7 @@ auth:
     permissions: {}
     roles: []
 functions:
-    - id: 6c474ae256a941109a7c57bb5be84f47
+    - id: 5c33a21a3dc04015bdababa4b2bfcba5
       name: urlblock
       config: null
       description: react block
@@ -186,6 +186,6 @@ logscale:
     saved_searches: []
 lookup_files: []
 docs:
-    id: 6a5ef2fdf9474e8e8533cb9962390525
+    id: e8b9cf3f9643425793952e7d5d13955c
     path: app_docs
     entrypoint: README.md
