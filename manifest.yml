@@ -1,6 +1,6 @@
 app_id: 657423f8ca55499da6e0c827edf8d9fe
-name: Category Blocking
-description: react test
+name: URL Categorization
+description: A comprehensive URL filtering solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines URL blocking workflows while providing valuable insights into blocking patterns.
 logo: images/logo.png
 vendor: CrowdStrike
 vendor_products: []
