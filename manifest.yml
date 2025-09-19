@@ -1,6 +1,6 @@
-app_id: 657423f8ca55499da6e0c827edf8d9fe
+app_id: 6856fb7caf7e407eb0dd93520f8775d6
 name: Category Blocking
-description: react test
+description: This Foundry app provides a comprehensive URL filtering solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines URL blocking workflows while providing valuable insights into blocking patterns.
 logo: images/logo.png
 vendor: CrowdStrike
 vendor_products: []
@@ -22,7 +22,7 @@ ui:
     extensions: []
     pages:
         urlblocking:
-            id: 67b215e2b3c647268a4a816eb23748d9
+            id: f9d86b6e3083468eb353f944bfcc2ab3
             name: urlblocking
             description: react blocking test
             path: ui/pages/urlblocking/src/dist
@@ -39,7 +39,7 @@ ui:
             permissions: []
     dashboards: {}
     navigation:
-        id: 053282adf36c4072b5baa837d7e61583
+        id: 118e428de95c4936a545c3d4722aa8f4
         links:
             - path: /
               name: URL Blocking
@@ -73,7 +73,7 @@ auth:
     permissions: {}
     roles: []
 functions:
-    - id: 5c33a21a3dc04015bdababa4b2bfcba5
+    - id: 648c757fe2f347928a406b4877aa501c
       name: urlblock
       config: null
       description: react block
@@ -186,6 +186,6 @@ logscale:
     saved_searches: []
 lookup_files: []
 docs:
-    id: e8b9cf3f9643425793952e7d5d13955c
+    id: 29fdec2e57be49b289763d637ae18591
     path: app_docs
     entrypoint: README.md
