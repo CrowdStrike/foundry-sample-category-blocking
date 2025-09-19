@@ -1,4 +1,3 @@
-app_id: 6856fb7caf7e407eb0dd93520f8775d6
 name: Category Blocking
 description: This Foundry app provides a comprehensive URL filtering solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines URL blocking workflows while providing valuable insights into blocking patterns.
 logo: images/logo.png
@@ -7,185 +6,181 @@ vendor_products: []
 use_case: Endpoint security
 manifest_version: "2023-05-09"
 ignored:
-    - ui/(extensions|pages)/[^\/]*?/public
-    - ui/(extensions|pages)/[^\/]*?/index.html
-    - ui/(extensions|pages)/[^\/]*?/favicon.ico
-    - ui/(extensions|pages)/.*?/node_modules
-    - ui/(extensions|pages)/.*?/config
-    - ui/(extensions|pages)/.*?/\.gitignore
-    - ui/(extensions|pages)/.*?/package\.json
-    - ui/(extensions|pages)/.*?/tsconfig\.json
-    - ui/(extensions|pages)/.*?/tsconfig\..*\.json
-    - ui/(extensions|pages)/.*?/.*?\.(md|log|lock|cjs)
+  - ui/(extensions|pages)/[^\/]*?/public
+  - ui/(extensions|pages)/[^\/]*?/index.html
+  - ui/(extensions|pages)/[^\/]*?/favicon.ico
+  - ui/(extensions|pages)/.*?/node_modules
+  - ui/(extensions|pages)/.*?/config
+  - ui/(extensions|pages)/.*?/\.gitignore
+  - ui/(extensions|pages)/.*?/package\.json
+  - ui/(extensions|pages)/.*?/tsconfig\.json
+  - ui/(extensions|pages)/.*?/tsconfig\..*\.json
+  - ui/(extensions|pages)/.*?/.*?\.(md|log|lock|cjs)
 ui:
-    homepage: pages.urlblocking
-    extensions: []
-    pages:
-        urlblocking:
-            id: f9d86b6e3083468eb353f944bfcc2ab3
-            name: urlblocking
-            description: react blocking test
-            path: ui/pages/urlblocking/src/dist
-            entrypoint: ui/pages/urlblocking/src/dist/index.html
-            content_security_policy:
-                connect-src: []
-                style-src: []
-                style-src-elem: []
-                script-src: []
-                form-action: []
-                img-src: []
-                media-src: []
-                object-src: []
-            permissions: []
-    dashboards: {}
-    navigation:
-        id: 118e428de95c4936a545c3d4722aa8f4
-        links:
-            - path: /
-              name: URL Blocking
-              permissions: []
-              ref: pages.urlblocking
+  homepage: pages.urlblocking
+  extensions: []
+  pages:
+    urlblocking:
+      name: urlblocking
+      description: react blocking test
+      path: ui/pages/urlblocking/src/dist
+      entrypoint: ui/pages/urlblocking/src/dist/index.html
+      content_security_policy:
+        connect-src: []
+        style-src: []
+        style-src-elem: []
+        script-src: []
+        form-action: []
+        img-src: []
+        media-src: []
+        object-src: []
+      permissions: []
+  dashboards: {}
+  navigation:
+    links:
+      - path: /
+        name: URL Blocking
+        permissions: []
+        ref: pages.urlblocking
 api_integrations: []
 rtr_scripts: []
 collections:
-    - name: domain
-      description: ""
-      schema: collections/domain.json
-      permissions: []
-      workflow_integration:
-        system_action: true
-        tags: []
-    - name: relationship
-      description: to have relationship data
-      schema: collections/relationship.json
-      permissions: []
-      workflow_integration:
-        system_action: true
-        tags: []
+  - name: domain
+    description: ""
+    schema: collections/domain.json
+    permissions: []
+    workflow_integration:
+      system_action: true
+      tags: []
+  - name: relationship
+    description: to have relationship data
+    schema: collections/relationship.json
+    permissions: []
+    workflow_integration:
+      system_action: true
+      tags: []
 auth:
-    scopes:
-        - firewall-management:read
-        - firewall-management:write
-        - host-group:read
-        - host-group:write
-        - devices:read
-        - devices:write
-    permissions: {}
-    roles: []
+  scopes:
+    - firewall-management:read
+    - firewall-management:write
+    - host-group:read
+    - host-group:write
+    - devices:read
+    - devices:write
+  permissions: {}
+  roles: []
 functions:
-    - id: 648c757fe2f347928a406b4877aa501c
-      name: urlblock
-      config: null
-      description: react block
-      path: functions/urlblock
-      environment_variables: {}
-      handlers:
-        - name: urlblock
-          description: react block
-          method: GET
-          api_path: /urlblock
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: categories
-          description: get categories
-          method: GET
-          api_path: /categories
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: create-rule
-          description: Create blocking rule
-          method: POST
-          api_path: /create-rule
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: domain-analytics
-          description: Create blocking rule
-          method: GET
-          api_path: /domain-analytics
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: import_csv_handler
-          description: Import CSV data into Collections
-          method: POST
-          api_path: /import-csv
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: list-categories
-          description: Import CSV data into Collections
-          method: GET
-          api_path: /list-categories
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: search-categories
-          description: Import CSV data into Collections
-          method: GET
-          api_path: /search-categories
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: manage-categories
-          description: Import CSV data into Collections
-          method: POST
-          api_path: /manage-category
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: manage-relationship
-          description: Import CSV data into Collections
-          method: POST
-          api_path: /manage-relationship
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: get-relationship
-          description: Import CSV data into Collections
-          method: GET
-          api_path: /get-relationship
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: update-rules
-          description: update rules by creating new rule with updates urls
-          method: POST
-          api_path: /update-rules
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-      language: python
+  - name: urlblock
+    config: null
+    description: react block
+    path: functions/urlblock
+    environment_variables: {}
+    handlers:
+      - name: urlblock
+        description: react block
+        method: GET
+        api_path: /urlblock
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: categories
+        description: get categories
+        method: GET
+        api_path: /categories
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: create-rule
+        description: Create blocking rule
+        method: POST
+        api_path: /create-rule
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: domain-analytics
+        description: Create blocking rule
+        method: GET
+        api_path: /domain-analytics
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: import_csv_handler
+        description: Import CSV data into Collections
+        method: POST
+        api_path: /import-csv
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: list-categories
+        description: Import CSV data into Collections
+        method: GET
+        api_path: /list-categories
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: search-categories
+        description: Import CSV data into Collections
+        method: GET
+        api_path: /search-categories
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: manage-categories
+        description: Import CSV data into Collections
+        method: POST
+        api_path: /manage-category
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: manage-relationship
+        description: Import CSV data into Collections
+        method: POST
+        api_path: /manage-relationship
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: get-relationship
+        description: Import CSV data into Collections
+        method: GET
+        api_path: /get-relationship
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+      - name: update-rules
+        description: update rules by creating new rule with updates urls
+        method: POST
+        api_path: /update-rules
+        payload_type: ""
+        request_schema: null
+        response_schema: null
+        workflow_integration: null
+        permissions: []
+    language: python
 workflows: []
 parsers: []
 logscale:
-    saved_searches: []
+  saved_searches: []
 lookup_files: []
 docs:
-    id: 29fdec2e57be49b289763d637ae18591
-    path: app_docs
-    entrypoint: README.md
+  path: app_docs
+  entrypoint: README.md
