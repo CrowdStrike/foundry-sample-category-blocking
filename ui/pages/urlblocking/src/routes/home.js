@@ -177,7 +177,9 @@ function Home() {
       });
 
       // Generate a unique key for the relationship
-      const relationshipKey = `rel-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const randomBytes = new Uint32Array(1);
+      crypto.getRandomValues(randomBytes);
+      const relationshipKey = `rel-${Date.now()}-${randomBytes[0].toString(36)}`;
 
       // Ensure the data matches the schema exactly
       const formattedData = {
@@ -299,7 +301,9 @@ function Home() {
   };
 
   const generateRelationshipKey = (prefix = 'rel') => {
-    return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const randomBytes = new Uint32Array(1);
+    crypto.getRandomValues(randomBytes);
+    return `${prefix}-${Date.now()}-${randomBytes[0].toString(36)}`;
   };
 
   const formatDate = (date = new Date()) => {
