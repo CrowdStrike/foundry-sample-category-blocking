@@ -1,12 +1,12 @@
 ![CrowdStrike Falcon](/images/cs-logo.png?raw=true)
 
-# URL Categorization Foundry app
+# Category Blocking Foundry app
 
-This URL Categorization Foundry app provides a comprehensive URL filtering solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines URL blocking workflows while providing valuable insights into blocking patterns.
+This Category Blocking Foundry app provides a comprehensive URL filtering solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines URL blocking workflows while providing valuable insights into blocking patterns.
 
 ## Description
 
-The URL Categorization app allows you to:
+The Category Blocking app allows you to:
 
 - Create and manage custom categories of URLs for blocking
 - Deploy firewall rules to block categories of URLs across host groups
@@ -53,7 +53,7 @@ After cloning the repository, follow these steps to deploy the application:
 3. **Install the application**
    - Navigate to the Falcon console
    - Go to **Foundry** > **App Library**
-   - Find the URL Categorization app
+   - Find the Category Blocking app
    - Click **Install**
 
    <!-- Image placeholder for installation screen -->
