@@ -116,7 +116,7 @@ const [hasImported, setHasImported] = useState(false);
                 name: 'urlblock',
                 version: 1
             };
-            
+
             const cloudFunction = falcon.cloudFunction(config);
             const updateResponse = await cloudFunction.path('/update-rules').post({
                 category_name: categoryName,
@@ -128,7 +128,7 @@ const [hasImported, setHasImported] = useState(false);
 
             if (updateResponse.body && updateResponse.body.success) {
                 const results = updateResponse.body.results || [];
-                
+
                 // Update status for each rule group
                 const newStatus = {};
                 results.forEach(result => {
@@ -189,7 +189,7 @@ const [hasImported, setHasImported] = useState(false);
     logMessage(`Adding domain: ${domain} to category: ${selectedCategory}`);
     try {
         setLoading(true);
-        
+
         // First add domain to collection
         const collection = falcon.collection({
             collection: 'domain'
@@ -201,12 +201,12 @@ const [hasImported, setHasImported] = useState(false);
         // Get current category data
         const currentData = await safeReadCollection(collection, safeKey);
         const existingDomains = currentData?.domain || '';
-        
+
         // Add both the original domain and the starred version
         const starredDomain = domain.startsWith('*') ? domain : `*${domain}`;
         const domainsToAdd = `${domain};${starredDomain}`;
-        
-        const updatedDomains = existingDomains 
+
+        const updatedDomains = existingDomains
             ? `${existingDomains};${domainsToAdd}`
             : domainsToAdd;
 
@@ -219,10 +219,10 @@ const [hasImported, setHasImported] = useState(false);
 
         // Then update rules with both domains
         await handleUpdateRules(selectedCategory, domainsToAdd);
-        
+
         // Refresh category details
         await handleCategoryClick(selectedCategory);
-        
+
         setError(null);
         logMessage(`Successfully added domain and starred version, and updated rules`);
 
@@ -234,7 +234,7 @@ const [hasImported, setHasImported] = useState(false);
     }
 };
 
-    
+
 
     const handleImport = async () => {
         logMessage('Starting category import');
@@ -244,7 +244,7 @@ const [hasImported, setHasImported] = useState(false);
                 name: 'urlblock',
                 version: 1
             };
-            
+
             const cloudFunction = falcon.cloudFunction(config);
             const response = await cloudFunction.path('/import-csv').post({
                 collection_name: 'domain'
@@ -314,8 +314,8 @@ const [hasImported, setHasImported] = useState(false);
         </div>
 
         {/* Category Details Dialog */}
-        <SlDialog 
-            open={showDetails} 
+        <SlDialog
+            open={showDetails}
             onSlAfterHide={() => setShowDetails(false)}
             label={`Category Details: ${selectedCategory}`}
             style={{ '--width': '500px' }}
@@ -362,7 +362,7 @@ const [hasImported, setHasImported] = useState(false);
                                     <div className="flex items-center justify-between">
                                         <span className="font-medium">{status.name}</span>
                                         <sl-badge variant={
-                                            status.status === 'Updated successfully' 
+                                            status.status === 'Updated successfully'
                                                 ? 'success'
                                                 : status.status === 'Updating...'
                                                     ? 'info'
@@ -373,7 +373,7 @@ const [hasImported, setHasImported] = useState(false);
                                     </div>
                                     {status.details && (
                                         <div className="mt-2 text-sm text-gray-600">
-                                            {typeof status.details === 'object' 
+                                            {typeof status.details === 'object'
                                                 ? JSON.stringify(status.details, null, 2)
                                                 : status.details
                                             }

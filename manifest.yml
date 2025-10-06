@@ -1,5 +1,5 @@
 name: Category Blocking
-description: This Foundry app provides a comprehensive URL filtering solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines URL blocking workflows while providing valuable insights into blocking patterns.
+description: This Foundry app provides a comprehensive domain blocking solution that simplifies firewall rule management through custom categories and automated rule deployment. Built on CrowdStrike's Foundry platform, this application streamlines domain blocking workflows while providing valuable insights into blocking patterns.
 logo: images/logo.png
 vendor: CrowdStrike
 vendor_products: []
@@ -39,7 +39,7 @@ ui:
   navigation:
     links:
       - path: /
-        name: URL Blocking
+        name: Category Blocking
         permissions: []
         ref: pages.urlblocking
 api_integrations: []
@@ -167,7 +167,7 @@ functions:
         workflow_integration: null
         permissions: []
       - name: update-rules
-        description: update rules by creating new rule with updates urls
+        description: update rules by creating new rule with updated domains
         method: POST
         api_path: /update-rules
         payload_type: ""

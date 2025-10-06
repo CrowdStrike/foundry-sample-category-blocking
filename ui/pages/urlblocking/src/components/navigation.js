@@ -87,7 +87,7 @@ export function TabNavigation({ children }) {
       <style>{customStyles}</style>
       <div style={styles.container}>
         <h1 style={styles.header}>Category Blocking</h1>
-        <p style={styles.subHeader}>Configure URL blocking rules for your host groups</p>
+        <p style={styles.subHeader}>Configure category based blocking rules for your host groups</p>
       </div>
 
       <SlTabGroup
@@ -97,11 +97,11 @@ export function TabNavigation({ children }) {
         <nav style={styles.nav}>
           <div style={styles.tabList}>
             {[
-              { path: '/', label: 'URL Blocking' },
+              { path: '/', label: 'Category Blocking Policy' },
               { path: '/about', label: 'Custom Categories' },
               { path: '/domain-analytics', label: 'Domain Analytics' },
               { path: '/firewall-rules', label: 'Firewall Rules' },
-              { path: '/relationship', label: 'Relationship' }
+              { path: '/relationship', label: 'Relationship Graph' }
             ].map(({ path, label }) => (
               <SlTab
                 key={path}
