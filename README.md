@@ -8,8 +8,8 @@ This Category Blocking Foundry app provides a comprehensive URL filtering soluti
 
 The Category Blocking app allows you to:
 
-- Create and manage custom categories of URLs for blocking
-- Deploy firewall rules to block categories of URLs across host groups
+- Create and manage custom categories of domains for blocking
+- Deploy firewall rules to block categories of domains across host groups
 - Import URL categories from CSV files
 - Visualize relationships between categories, rule groups, and host groups
 - Generate analytics on domain blocking patterns
@@ -98,7 +98,7 @@ This application demonstrates advanced usage of Functions, Collections and UI Ex
    - **manage-categories**: Creates or updates categories
    - **manage-relationship**: Creates relationships between categories, rule groups, and hosts
    - **get-relationship**: Retrieves relationship information
-   - **update-rules**: Updates existing rules with new URLs
+   - **update-rules**: Updates existing rules with new domains
 
 2. **Collections for data storage:**
    - **domain**: Stores URLs and category mappings
@@ -126,7 +126,7 @@ This application demonstrates advanced usage of Functions, Collections and UI Ex
 1. Navigate to the **Home** page
 2. Enter a policy name and select a host group
 3. Select the categories you want to block
-4. Click "Preview URLs" to see what will be blocked
+4. Click "Preview domains" to see what will be blocked
 5. Click "Create blocking rule" to deploy the rule
 
 ### Viewing Analytics

@@ -32,7 +32,7 @@ function About() {
         name: 'urlblock',
         version: 1
       };
-      
+
       const cloudFunction = falcon.cloudFunction(config);
 
       console.log('Sending request with:', {
@@ -73,7 +73,7 @@ function About() {
 return (
     <div className="container mx-auto p-4">
         <h2 className="text-lg font-semibold text-black mb-4 text-left">Create custom category</h2>
-      
+
       <div className="space-y-6">
         {/* Category Name Input */}
         <div className="form-group">
@@ -92,7 +92,7 @@ return (
               height: '40px',
               lineHeight: '40px',
     border: '1px solid #B8B7BD',  // Added this line
-    borderRadius: '0'  
+    borderRadius: '0'
             }}
           />
         </div>
@@ -100,12 +100,12 @@ return (
         {/* URLs Input */}
         <div className="form-group">
           <label className="block text-sm font-bold text-black mb-2">
-            URLs (comma-separated)
+            Domains (comma-separated)
           </label>
           <textarea
             value={urls}
             onChange={(e) => setUrls(e.target.value)}
-            placeholder="Enter URLs separated by commas (e.g., example.com, test.com, domain.com)"
+            placeholder="Enter domains separated by commas (e.g., example.com, test.com, domain.com)"
             rows="6"
             className="w-1/2 py-3 px-4 bg-white border border-gray-300 focus:border-gray-400 outline-none font-mono text-sm"
             style={{
@@ -114,7 +114,7 @@ return (
               height: '70px',
               lineHeight: '70px',
     border: '1px solid #B8B7BD',  // Added this line
-    borderRadius: '0'  
+    borderRadius: '0'
             }}
           />
           <p className="mt-2 text-sm text-gray-600">

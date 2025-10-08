@@ -33,7 +33,7 @@ function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-  
+
   // At the top of your component
   useEffect(() => {
     console.log('Selected categories updated:', selectedCategories);
@@ -51,7 +51,7 @@ function Home() {
           name: 'urlblock',
           version: 1
         };
-        
+
         const cloudFunction = falcon.cloudFunction(config);
         const hostGroupsResponse = await cloudFunction.path('/urlblock').get();
 
@@ -129,10 +129,10 @@ function Home() {
         try {
           const objectKey = category;
           console.log(`Fetching URLs for category: ${category}, key: ${objectKey}`);
-          
+
           const record = await collection.read(objectKey);
           console.log(`Record for ${category}:`, record);
-          
+
           // Access the domain directly from the record
           if (record && record.domain) {
             return record.domain;
@@ -220,7 +220,7 @@ function Home() {
         name: 'urlblock',
         version: 1
       };
-      
+
       const cloudFunction = falcon.cloudFunction(config);
       const response = await cloudFunction.path('/create-rule').post({
         hostGroupId: selectedHostGroup,
@@ -232,7 +232,7 @@ function Home() {
 
       // Get host group name
       const hostGroupName = hostGroups.find(g => g.id === selectedHostGroup)?.name;
-      
+
       // Create relationship in collection for each selected category
       const relationshipPromises = selectedCategories.map(category => {
         const relationshipData = {
@@ -275,7 +275,7 @@ function Home() {
   const validateRelationshipData = (data) => {
     const requiredFields = ['category_name', 'rule_group_id', 'host_group_id'];
     const missingFields = requiredFields.filter(field => !data[field]);
-    
+
     if (missingFields.length > 0) {
       throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
     }
@@ -315,7 +315,7 @@ function Home() {
       collection: 'relationship'
     });
 
-    const updatePromises = updates.map(({ key, data }) => 
+    const updatePromises = updates.map(({ key, data }) =>
       relationshipCollection.write(key, data)
     );
 
@@ -353,7 +353,7 @@ function Home() {
               height: '40px',
               lineHeight: '40px',
               border: '1px solid #B8B7BD',
-              borderRadius: '0'  
+              borderRadius: '0'
             }}
           />
         </div>
@@ -372,7 +372,7 @@ function Home() {
               height: '40px',
               lineHeight: '40px',
               border: '1px solid #B8B7BD',
-              borderRadius: '0'  
+              borderRadius: '0'
             }}
           >
             <option value="">Select</option>
@@ -397,7 +397,7 @@ function Home() {
             'min-width': '120px'
           }}
         >
-          Preview URLs
+          Preview Domains
         </sl-button>
 
         <sl-button
@@ -424,7 +424,7 @@ function Home() {
             Add custom categories
           </Link>
         </div>
-        <div 
+        <div
           className="grid grid-cols-4 gap-x-6 gap-y-2 max-h-[400px] overflow-y-auto p-4"
           style={{
             border: '1px solid #B8B7BD',
@@ -447,14 +447,14 @@ function Home() {
                     if (e.target.checked) {
                       setSelectedCategories(prev => [...prev, category]);
                     } else {
-                      setSelectedCategories(prev => 
+                      setSelectedCategories(prev =>
                         prev.filter(c => c !== category)
                       );
                     }
                   }}
                   className="h-4 w-4 text-gray-600 border-gray-300 focus:ring-0"
                 />
-                <label 
+                <label
                   htmlFor={`category-${category}`}
                   className="text-sm text-gray-700 cursor-pointer select-none"
                 >
