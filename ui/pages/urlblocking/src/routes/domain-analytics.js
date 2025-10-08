@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useFalconApiContext } from '../contexts/falcon-api-context';
 import Plot from 'react-plotly.js';
+import Plotly from 'plotly.js';
 import { SlSpinner, SlCard, SlIcon } from '@shoelace-style/shoelace/dist/react';
 
 function DomainAnalytics() {
@@ -78,7 +79,7 @@ function DomainAnalytics() {
         const updatePlotlyTheme = () => {
             const plots = document.querySelectorAll('.js-plotly-plot');
             plots.forEach(plot => {
-                if (plot && plot._fullLayout) {
+                if (plot && plot._fullLayout && typeof Plotly.relayout === 'function') {
                     try {
                         Plotly.relayout(plot, {
                             'font.color': isDarkMode ? '#ffffff' : '#333333',
@@ -98,7 +99,11 @@ function DomainAnalytics() {
         };
         
         // Update theme after a short delay to ensure plots are rendered
-        const timer = setTimeout(updatePlotlyTheme, 100);
+        const timer = setTimeout(() => {
+            if (typeof updatePlotlyTheme === 'function') {
+                updatePlotlyTheme();
+            }
+        }, 100);
         return () => clearTimeout(timer);
     }, [analyticsData, isDarkMode]);
 
