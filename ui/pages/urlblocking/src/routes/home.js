@@ -117,7 +117,7 @@ function Home() {
       setIsPreviewLoading(true);
       setStatus({
         type: 'info',
-        message: 'Loading URLs from categories...'
+        message: 'Loading domains from categories...'
       });
 
       const collection = falcon.collection({
@@ -128,7 +128,7 @@ function Home() {
       const urlPromises = selectedCategories.map(async (category) => {
         try {
           const objectKey = category;
-          console.log(`Fetching URLs for category: ${category}, key: ${objectKey}`);
+          console.log(`Fetching domains for category: ${category}, key: ${objectKey}`);
 
           const record = await collection.read(objectKey);
           console.log(`Record for ${category}:`, record);
@@ -139,7 +139,7 @@ function Home() {
           }
           return null;
         } catch (error) {
-          console.warn(`Failed to fetch URLs for category ${category}:`, error);
+          console.warn(`Failed to fetch domains for category ${category}:`, error);
           return null;
         }
       });
@@ -148,14 +148,14 @@ function Home() {
       const urls = urlResults.filter(Boolean).join(';');
 
       if (!urls) {
-        throw new Error('No URLs found for selected categories');
+        throw new Error('No domains found for selected categories');
       }
 
       console.log('Combined URLs:', urls);
       setSelectedUrls(urls);
       setStatus({
         type: 'success',
-        message: `Preview generated successfully with URLs from ${selectedCategories.length} categories`
+        message: `Preview generated successfully with domains from ${selectedCategories.length} categories`
       });
 
     } catch (error) {
@@ -208,7 +208,7 @@ function Home() {
     try {
       if (!selectedHostGroup) throw new Error('Please select a host group');
       if (!policyName) throw new Error('Please enter a policy name');
-      if (!selectedUrls) throw new Error('Please preview URLs first');
+      if (!selectedUrls) throw new Error('Please preview domains first');
 
       setStatus({
         type: 'info',
@@ -468,7 +468,7 @@ function Home() {
 
       {/* URL Preview Section */}
       <div>
-        <h2 className="text-sm font-medium text-gray-700 mb-2"><b>Selected URLs preview</b></h2>
+        <h2 className="text-sm font-medium text-gray-700 mb-2"><b>Selected domains preview</b></h2>
         <sl-textarea
           value={selectedUrls}
           readonly
