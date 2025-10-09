@@ -87,7 +87,7 @@ export function TabNavigation({ children }) {
       <style>{customStyles}</style>
       <div style={styles.container}>
         <h1 style={styles.header}>Category Blocking</h1>
-        <p style={styles.subHeader}>Configure category based blocking rules for your host groups</p>
+        <p style={styles.subHeader}>Configure category-based blocking rules for your host groups</p>
       </div>
 
       <SlTabGroup
