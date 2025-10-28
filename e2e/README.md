@@ -19,6 +19,15 @@ End-to-end tests for the foundry-sample-category-blocking application using Play
    foundry apps release
    ```
 
+## Installation
+
+Install dependencies before running tests:
+
+```bash
+npm ci
+npx playwright install chromium
+```
+
 ## Running Tests
 
 ### Basic Test Execution
