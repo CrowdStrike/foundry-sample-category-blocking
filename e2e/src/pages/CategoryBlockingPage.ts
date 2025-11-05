@@ -66,8 +66,7 @@ export class CategoryBlockingPage extends BasePage {
           await expect(appButton).toBeVisible({ timeout: 5000 });
         } catch {
           // Try partial match if exact match fails
-          const baseName = appName.includes('Category Blocking') ? 'Category Blocking' : 'foundry-sample-category-blocking';
-          appButton = this.page.getByRole('button', { name: new RegExp(baseName, 'i') }).first();
+          appButton = this.page.getByRole('button', { name: new RegExp(appName, 'i') }).first();
           await expect(appButton).toBeVisible({ timeout: 5000 });
         }
 
@@ -77,13 +76,13 @@ export class CategoryBlockingPage extends BasePage {
         }
 
         // Click the app link
-        const appLink = this.page.getByRole('link', { name: /Category Blocking/i }).first();
+        const appLink = this.page.getByRole('link', { name: new RegExp(appName, 'i') }).first();
         await expect(appLink).toBeVisible({ timeout: 5000 });
         await appLink.click();
 
         await this.verifyPageLoaded();
       },
-      'Navigate to Category Blocking app'
+      `Navigate to ${appName} app`
     );
   }
 
