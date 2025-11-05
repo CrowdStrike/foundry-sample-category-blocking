@@ -116,9 +116,6 @@ test.describe('Category Blocking App E2E Tests', () => {
       const customCategoriesTab = iframe.locator('sl-tab:has-text("Custom Categories") a').first();
       await customCategoriesTab.click();
 
-      // Wait a moment for navigation
-      await page.waitForTimeout(1000);
-
       // Verify the tab is now active (has active styling)
       const activeTab = iframe.locator('sl-tab[active]', { hasText: 'Custom Categories' });
       await expect(activeTab).toBeVisible({ timeout: 5000 });
@@ -137,9 +134,6 @@ test.describe('Category Blocking App E2E Tests', () => {
       // Click Domain Analytics tab
       const domainAnalyticsTab = iframe.locator('a:has-text("Domain Analytics")');
       await domainAnalyticsTab.click();
-
-      // Wait a moment for navigation
-      await page.waitForTimeout(1000);
 
       // Verify the tab is now active
       const activeTab = iframe.locator('sl-tab[active]', { hasText: 'Domain Analytics' });
@@ -160,9 +154,6 @@ test.describe('Category Blocking App E2E Tests', () => {
       const firewallRulesTab = iframe.locator('a:has-text("Firewall Rules")');
       await firewallRulesTab.click();
 
-      // Wait a moment for navigation
-      await page.waitForTimeout(1000);
-
       // Verify the tab is now active
       const activeTab = iframe.locator('sl-tab[active]', { hasText: 'Firewall Rules' });
       await expect(activeTab).toBeVisible({ timeout: 5000 });
@@ -181,9 +172,6 @@ test.describe('Category Blocking App E2E Tests', () => {
       // Click Relationship Graph tab
       const relationshipGraphTab = iframe.locator('a:has-text("Relationship Graph")');
       await relationshipGraphTab.click();
-
-      // Wait a moment for navigation
-      await page.waitForTimeout(1000);
 
       // Verify the tab is now active
       const activeTab = iframe.locator('sl-tab[active]', { hasText: 'Relationship Graph' });
@@ -212,7 +200,6 @@ test.describe('Category Blocking App E2E Tests', () => {
         // Target tabs specifically within sl-tab elements
         const tab = iframe.locator(`sl-tab:has-text("${tabName}") a`).first();
         await tab.click();
-        await page.waitForTimeout(500);
 
         // Verify tab activated
         const activeTab = iframe.locator('sl-tab[active]', { hasText: tabName });
