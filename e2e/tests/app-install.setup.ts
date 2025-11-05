@@ -1,14 +1,17 @@
-import { test as setup } from '@playwright/test';
-import { FoundryHomePage } from '../src/pages/FoundryHomePage';
-import { CategoryBlockingPage } from '../src/pages/CategoryBlockingPage';
+import { test as setup } from '../src/fixtures';
 
-setup('install Category Blocking app', async ({ page }) => {
-  const foundryHomePage = new FoundryHomePage(page);
-  const categoryBlockingPage = new CategoryBlockingPage(page);
+setup('install Category Blocking app', async ({ appCatalogPage, appName }) => {
+  // Check if app is already installed (this navigates to the app page)
+  const isInstalled = await appCatalogPage.isAppInstalled(appName);
 
-  // Navigate to Foundry and install the app once for all tests
-  await foundryHomePage.goto();
-  await categoryBlockingPage.navigateToCategoryBlocking();
+  if (!isInstalled) {
+    console.log(`App '${appName}' is not installed. Installing...`);
+    const installed = await appCatalogPage.installApp(appName);
 
-  // App is now installed and ready for all parallel tests
+    if (!installed) {
+      throw new Error(`Failed to install app '${appName}'`);
+    }
+  } else {
+    console.log(`App '${appName}' is already installed`);
+  }
 });
