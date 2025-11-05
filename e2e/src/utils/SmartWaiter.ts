@@ -124,6 +124,13 @@ export class SmartWaiter {
       { timeout: 60000 } // App operations can take time
     );
   }
+
+  /**
+   * Delay execution
+   */
+  async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
 }
 
 export class RetryHandler {
