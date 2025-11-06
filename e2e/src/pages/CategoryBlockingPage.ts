@@ -60,28 +60,23 @@ export class CategoryBlockingPage extends BasePage {
         await expect(customAppsButton).toBeVisible({ timeout: 10000 });
         await customAppsButton.click();
 
-        // Find the app button (may need to expand it)
-        let appButton = this.page.getByRole('button', { name: appName, exact: true });
+        // First expand the app section by clicking the button
+        const appButton = this.page.getByRole('button', { name: appName, exact: false }).first();
+        if (await this.elementExists(appButton, 3000)) {
+          await this.smartClick(appButton, `App '${appName}' button`);
 
-        try {
-          await expect(appButton).toBeVisible({ timeout: 5000 });
-        } catch {
-          // Try partial match if exact match fails
-          appButton = this.page.getByRole('button', { name: new RegExp(appName, 'i') }).first();
-          await expect(appButton).toBeVisible({ timeout: 5000 });
+          // Now find and click the app link (displayed as "Category Blocking")
+          const appLink = this.page.getByRole('link', { name: 'Category Blocking', exact: false });
+          await expect(appLink).toBeVisible({ timeout: 5000 });
+          await this.smartClick(appLink, 'Category Blocking link');
+
+          // Wait for navigation to app page (URL includes query params)
+          await this.page.waitForURL(/\/foundry\/page\/[a-f0-9]+(\?.*)?$/, { timeout: 15000 });
+
+          await this.verifyPageLoaded();
+        } else {
+          throw new Error(`App '${appName}' not found in Custom Apps menu`);
         }
-
-        // Click to expand if not already expanded
-        if (!await appButton.getAttribute('aria-expanded')) {
-          await appButton.click();
-        }
-
-        // Click the app link
-        const appLink = this.page.getByRole('link', { name: new RegExp(appName, 'i') }).first();
-        await expect(appLink).toBeVisible({ timeout: 5000 });
-        await appLink.click();
-
-        await this.verifyPageLoaded();
       },
       `Navigate to ${appName} app`
     );
