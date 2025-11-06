@@ -43,9 +43,10 @@ export class CategoryBlockingPage extends BasePage {
    * Navigate to already installed Category Blocking app
    */
   async navigateToInstalledApp(): Promise<void> {
+    const appName = process.env.APP_NAME || 'foundry-sample-category-blocking';
+
     return this.withTiming(
       async () => {
-        const appName = process.env.APP_NAME || 'foundry-sample-category-blocking';
         this.logger.info(`Navigating to installed app '${appName}'`);
 
         // Navigate via Custom Apps menu
