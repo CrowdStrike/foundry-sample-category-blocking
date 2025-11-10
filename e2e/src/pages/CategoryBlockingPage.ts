@@ -52,7 +52,9 @@ export class CategoryBlockingPage extends BasePage {
         // Navigate via Custom Apps menu
         await this.navigateToPath('/foundry/home', 'Foundry home page');
 
-        const menuButton = this.page.getByRole('button', { name: 'Menu' });
+        // Open the hamburger menu - use data-test-selector="nav-trigger" to target the specific menu
+        // (not other Menu buttons that may appear on the page)
+        const menuButton = this.page.locator('[data-test-selector="nav-trigger"]');
         await expect(menuButton).toBeVisible({ timeout: 10000 });
         await menuButton.click();
 
