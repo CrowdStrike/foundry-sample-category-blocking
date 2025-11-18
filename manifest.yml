@@ -6,46 +6,46 @@ vendor_products: []
 use_case: Endpoint security
 manifest_version: "2023-05-09"
 ignored:
-  - ui/(extensions|pages)/[^\/]*?/public
-  - ui/(extensions|pages)/[^\/]*?/index.html
-  - ui/(extensions|pages)/[^\/]*?/favicon.ico
-  - ui/(extensions|pages)/.*?/node_modules
-  - ui/(extensions|pages)/.*?/config
-  - ui/(extensions|pages)/.*?/\.gitignore
-  - ui/(extensions|pages)/.*?/package\.json
-  - ui/(extensions|pages)/.*?/tsconfig\.json
-  - ui/(extensions|pages)/.*?/tsconfig\..*\.json
-  - ui/(extensions|pages)/.*?/.*?\.(md|log|lock|cjs)
-  - e2e
-  - e2e/.+
-  - functions/.*/venv
-  - functions/.*/venv/.+
+    - ui/(extensions|pages)/[^\/]*?/public
+    - ui/(extensions|pages)/[^\/]*?/index.html
+    - ui/(extensions|pages)/[^\/]*?/favicon.ico
+    - ui/(extensions|pages)/.*?/node_modules
+    - ui/(extensions|pages)/.*?/config
+    - ui/(extensions|pages)/.*?/\.gitignore
+    - ui/(extensions|pages)/.*?/package\.json
+    - ui/(extensions|pages)/.*?/tsconfig\.json
+    - ui/(extensions|pages)/.*?/tsconfig\..*\.json
+    - ui/(extensions|pages)/.*?/.*?\.(md|log|lock|cjs)
+    - e2e
+    - e2e/.+
+    - functions/.*/venv
+    - functions/.*/venv/.+
 ui:
-  homepage: pages.urlblocking
-  extensions: []
-  pages:
-    urlblocking:
-      name: urlblocking
-      description: react blocking test
-      path: ui/pages/urlblocking/src/dist
-      entrypoint: ui/pages/urlblocking/src/dist/index.html
-      content_security_policy:
-        connect-src: []
-        style-src: []
-        style-src-elem: []
-        script-src: []
-        form-action: []
-        img-src: []
-        media-src: []
-        object-src: []
-      permissions: []
-  dashboards: {}
-  navigation:
-    links:
-      - path: /
-        name: Category Blocking
-        permissions: []
-        ref: pages.urlblocking
+    homepage: pages.urlblocking
+    extensions: []
+    pages:
+        urlblocking:
+            name: urlblocking
+            description: react blocking test
+            path: ui/pages/urlblocking/src/dist
+            entrypoint: ui/pages/urlblocking/src/dist/index.html
+            content_security_policy:
+                connect-src: []
+                style-src: []
+                style-src-elem: []
+                script-src: []
+                form-action: []
+                img-src: []
+                media-src: []
+                object-src: []
+            permissions: []
+    dashboards: {}
+    navigation:
+        links:
+            - path: /
+              name: Category Blocking
+              permissions: []
+              ref: pages.urlblocking
 api_integrations: []
 rtr_scripts: []
 collections:
@@ -74,12 +74,12 @@ auth:
     permissions: {}
     roles: []
 functions:
-  - name: urlblock
-    config: null
-    description: react block
-    path: functions/urlblock
-    environment_variables: {}
-    handlers:
+    - name: urlblock
+      config: null
+      description: react block
+      path: functions/urlblock
+      environment_variables: {}
+      handlers:
         - name: urlblock
           description: react block
           method: GET
@@ -186,5 +186,5 @@ logscale:
     saved_searches: []
 lookup_files: []
 docs:
-  path: app_docs
-  entrypoint: README.md
+    path: app_docs
+    entrypoint: README.md
