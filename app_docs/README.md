@@ -30,7 +30,7 @@ This sample is designed to show how to use URL Filtering in Falcon Foundry. It c
 
 When you install this app, you will need to go to the Firewall Rules page and click on the "Setup Application" button to configure the application.
 
-![Setup Application](../images/Setup.png)
+![Setup Application](setup.png)
 
 > **TIP**: You can import URL categories from a CSV file or manually add categories through the FirewallRules interface.
 
