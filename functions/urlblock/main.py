@@ -305,11 +305,23 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
         host_group_id = request.body.get('hostGroupId')
         urls = request.body.get('urls', '').strip()
         policy_name = request.body.get('policyName', '').strip()
+        platform = request.body.get('platform', '').lower()
 
+        platform_name_map = {
+            'windows': 'Windows',
+            'mac': 'Mac'
+        }
+         # Validate platform
+        if platform not in platform_name_map:
+            return Response(code=400, body={"error": "Platform must be either 'windows' or 'mac'"})
+
+        # Get correctly capitalized platform name
+        platform_name = platform_name_map[platform]
         # Log received data
         logger.info(f"Received request - hostGroupId: {host_group_id}")
         logger.info(f"Received URLs (raw): {urls}")
         logger.info(f"Policy name: {policy_name}")
+        logger.info(f"Platform: {platform}")
 
         # Validate required fields
         if not host_group_id:
@@ -318,6 +330,8 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
             return Response(code=400, body={"error": "urls is required"})
         if not policy_name:
             return Response(code=400, body={"error": "policyName is required"})
+        if platform not in ['windows', 'mac']:
+            return Response(code=400, body={"error": "Platform must be either 'windows' or 'mac'"})
 
         # Clean URLs
         url_list = [url.strip() for url in urls.split(';') if url.strip()]
@@ -337,7 +351,7 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
         policy_response = policies.create_policies(
             description=f"Firewall policy for {policy_name}",
             name=policy_name,
-            platform_name="Windows"
+            platform_name=platform_name
         )
 
         logger.info(f"Policy creation response: {policy_response}")
@@ -364,7 +378,7 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
             description=f"Domain blocking rule group for {policy_name}",
             enabled=True,
             name=f"{policy_name}_RuleGroup",
-            platform="windows",
+            platform=platform,
             rules={
                 "action": "DENY",
                 "address_family": "NONE",
@@ -404,7 +418,7 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
         update_response = mgmt.update_policy_container(
             default_inbound="ALLOW",
             default_outbound="ALLOW",
-            platform_id="windows",
+            platform_id=platform,
             enforce=True,
             local_logging=True,
             is_default_policy=False,

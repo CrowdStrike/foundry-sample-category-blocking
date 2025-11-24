@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useFalconApiContext } from '../contexts/falcon-api-context';
 import Plot from 'react-plotly.js';
-import Plotly from 'plotly.js';
 import { SlSpinner, SlCard, SlIcon } from '@shoelace-style/shoelace/dist/react';
 
 function DomainAnalytics() {
@@ -9,24 +8,24 @@ function DomainAnalytics() {
     const [analyticsData, setAnalyticsData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    
+
     // Function to check if dark mode is active
     const isDarkTheme = () => document.documentElement.classList.contains('theme-dark');
-    
+
     // Track dark mode for Plotly charts
     const [isDarkMode, setIsDarkMode] = useState(isDarkTheme());
-    
+
     // Preserve theme when component mounts and during its lifecycle
     useEffect(() => {
         // Log initial theme state
         console.log("DomainAnalytics mounted, theme:", isDarkTheme() ? "dark" : "light");
-        
+
         // Function to detect theme changes
         const detectTheme = () => {
             const isDark = isDarkTheme();
             setIsDarkMode(isDark);
         };
-        
+
         // Set up observer to detect theme changes
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
@@ -35,12 +34,12 @@ function DomainAnalytics() {
                 }
             });
         });
-        
-        observer.observe(document.documentElement, { 
+
+        observer.observe(document.documentElement, {
             attributes: true,
             attributeFilter: ['class']
         });
-        
+
         // Clean up observer on unmount
         return () => observer.disconnect();
     }, []);
@@ -58,7 +57,7 @@ function DomainAnalytics() {
             const response = await falcon.cloudFunction({ name: 'urlblock' })
                 .path('/domain-analytics')
                 .get();
-            
+
             if (response?.body) {
                 setAnalyticsData(response.body);
             } else {
@@ -75,11 +74,11 @@ function DomainAnalytics() {
     // Update Plotly charts when theme changes
     useEffect(() => {
         if (!analyticsData) return;
-        
+
         const updatePlotlyTheme = () => {
             const plots = document.querySelectorAll('.js-plotly-plot');
             plots.forEach(plot => {
-                if (plot && plot._fullLayout && typeof Plotly.relayout === 'function') {
+                if (plot && plot._fullLayout) {
                     try {
                         Plotly.relayout(plot, {
                             'font.color': isDarkMode ? '#ffffff' : '#333333',
@@ -97,13 +96,9 @@ function DomainAnalytics() {
                 }
             });
         };
-        
+
         // Update theme after a short delay to ensure plots are rendered
-        const timer = setTimeout(() => {
-            if (typeof updatePlotlyTheme === 'function') {
-                updatePlotlyTheme();
-            }
-        }, 100);
+        const timer = setTimeout(updatePlotlyTheme, 100);
         return () => clearTimeout(timer);
     }, [analyticsData, isDarkMode]);
 
@@ -129,8 +124,8 @@ function DomainAnalytics() {
         );
     }
 
-    if (!analyticsData || !analyticsData.visualization_data || 
-        !analyticsData.visualization_data.bar_chart || 
+    if (!analyticsData || !analyticsData.visualization_data ||
+        !analyticsData.visualization_data.bar_chart ||
         !analyticsData.visualization_data.comparison_chart) {
         return (
             <SlCard className="m-4">
@@ -155,13 +150,13 @@ function DomainAnalytics() {
                 color: isDarkMode ? '#ffffff' : '#333333'
             }
         },
-        xaxis: { 
+        xaxis: {
             title: 'Number of Visits',
             side: 'top',
             color: isDarkMode ? '#ffffff' : '#333333',
             gridcolor: isDarkMode ? '#444444' : '#e5e5e5'
         },
-        yaxis: { 
+        yaxis: {
             title: 'Domain',
             showticklabels: false,
             color: isDarkMode ? '#ffffff' : '#333333',
@@ -184,12 +179,12 @@ function DomainAnalytics() {
                 color: isDarkMode ? '#ffffff' : '#333333'
             }
         },
-        xaxis: { 
+        xaxis: {
             title: 'Domain',
             color: isDarkMode ? '#ffffff' : '#333333',
             gridcolor: isDarkMode ? '#444444' : '#e5e5e5'
         },
-        yaxis: { 
+        yaxis: {
             title: 'Count',
             color: isDarkMode ? '#ffffff' : '#333333',
             gridcolor: isDarkMode ? '#444444' : '#e5e5e5'
@@ -227,23 +222,23 @@ function DomainAnalytics() {
     barChartLayout.annotations = barChartAnnotations;
 
     // Use Falcon Shoelace color variables
-    const primaryColor = isDarkMode ? 
-        'var(--sl-color-primary-600, #0078d4)' : 
+    const primaryColor = isDarkMode ?
+        'var(--sl-color-primary-600, #0078d4)' :
         'var(--sl-color-primary-600, #0078d4)';
-    
-    const secondaryColor = isDarkMode ? 
-        'var(--sl-color-secondary-600, #6264a7)' : 
+
+    const secondaryColor = isDarkMode ?
+        'var(--sl-color-secondary-600, #6264a7)' :
         'var(--sl-color-secondary-600, #6264a7)';
 
     return (
         <div className="container mx-auto p-4">
             <h2 className="text-lg font-semibold text-left mb-4">Domain access analysis</h2>
-            
+
             <SlCard>
                 <div slot="header">
                     <h3 className="text-lg font-semibold text-left">Top Domains</h3>
                 </div>
-                
+
                 <Plot
                     key={`bar-chart-${isDarkMode ? 'dark' : 'light'}`}
                     data={[
@@ -268,7 +263,7 @@ function DomainAnalytics() {
                     layout={barChartLayout}
                     useResizeHandler={true}
                     style={{ width: '100%', height: '100%' }}
-                    config={{ 
+                    config={{
                         responsive: true,
                         displayModeBar: false
                     }}
@@ -279,7 +274,7 @@ function DomainAnalytics() {
                 <div slot="header">
                     <h3 className="text-lg font-semibold text-left">Comparison Analysis</h3>
                 </div>
-                
+
                 <Plot
                     key={`comparison-chart-${isDarkMode ? 'dark' : 'light'}`}
                     data={[
@@ -317,7 +312,7 @@ function DomainAnalytics() {
                     layout={comparisonChartLayout}
                     useResizeHandler={true}
                     style={{ width: '100%', height: '100%' }}
-                    config={{ 
+                    config={{
                         responsive: true,
                         displayModeBar: false
                     }}
@@ -329,13 +324,13 @@ function DomainAnalytics() {
                 <div slot="header">
                     <h3 className="text-lg font-semibold text-left">Detailed Analysis</h3>
                 </div>
-                
+
                 <div className="overflow-x-auto">
                     <table className="min-w-full" style={{ borderCollapse: 'collapse' }}>
                         <thead>
                             <tr>
                                 {['Domain', 'Visit Count', 'Unique IPs', 'Unique Hosts', 'First Seen', 'Last Seen'].map(header => (
-                                    <th key={header} 
+                                    <th key={header}
                                         className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
                                         {header}
                                     </th>
@@ -366,4 +361,3 @@ function DomainAnalytics() {
 }
 
 export { DomainAnalytics };
-

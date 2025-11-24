@@ -28,6 +28,7 @@ function Home() {
   const [selectedHostGroup, setSelectedHostGroup] = useState('');
   const [policyName, setPolicyName] = useState('');
   const [selectedCategories, setSelectedCategories] = useState([]);
+  const [platform, setPlatform] = useState('');
   const [selectedUrls, setSelectedUrls] = useState('');
   const [status, setStatus] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -209,6 +210,7 @@ function Home() {
       if (!selectedHostGroup) throw new Error('Please select a host group');
       if (!policyName) throw new Error('Please enter a policy name');
       if (!selectedUrls) throw new Error('Please preview domains first');
+      if (!platform) throw new Error('Please select a platform');
 
       setStatus({
         type: 'info',
@@ -225,7 +227,8 @@ function Home() {
       const response = await cloudFunction.path('/create-rule').post({
         hostGroupId: selectedHostGroup,
         urls: selectedUrls,
-        policyName: policyName
+        policyName: policyName,
+        platform: platform.toLowerCase()
       });
 
       console.log('Rule creation response:', response);
@@ -242,6 +245,7 @@ function Home() {
           host_group_id: selectedHostGroup,
           host_group_name: hostGroupName,
           policy_name: policyName,
+          platform: platform,
           created_at: new Date().toISOString(),
           created_by: falcon.data.user.username
         };
@@ -261,6 +265,7 @@ function Home() {
       setSelectedHostGroup('');
       setPolicyName('');
       setSelectedCategories([]);
+      setPlatform('');
       setSelectedUrls('');
 
     } catch (error) {
@@ -383,6 +388,31 @@ function Home() {
             ))}
           </select>
         </div>
+
+
+{/* Platform Dropdown */}
+<div className="flex-1">
+  <label className="block text-sm font-bold text-black mb-2">
+    Platform
+  </label>
+  <select
+    value={platform}
+    onChange={(e) => setPlatform(e.target.value)}
+    className="w-full px-3 bg-white outline-none appearance-none"
+    style={{
+      fontFamily: 'var(--sl-font-sans)',
+      fontSize: 'var(--sl-font-size-medium)',
+      height: '40px',
+      lineHeight: '40px',
+      border: '1px solid #B8B7BD',
+      borderRadius: '0'
+    }}
+  >
+    <option value="">Select</option>
+    <option value="windows">windows</option>
+    <option value="mac">mac</option>
+  </select>
+</div>
 
         <sl-button
           variant="primary"
