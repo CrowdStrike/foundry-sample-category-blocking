@@ -57,10 +57,14 @@ export class CategoryBlockingPage extends BasePage {
         const menuButton = this.page.locator('[data-test-selector="nav-trigger"]');
         await expect(menuButton).toBeVisible({ timeout: 10000 });
         await menuButton.click();
+        await this.page.waitForLoadState('networkidle');
 
         const customAppsButton = this.page.getByRole('button', { name: 'Custom apps' });
         await expect(customAppsButton).toBeVisible({ timeout: 10000 });
         await customAppsButton.click();
+
+        // Wait for the submenu to expand and be visible
+        await this.page.waitForLoadState('networkidle');
 
         // First expand the app section by clicking the button
         const appButton = this.page.getByRole('button', { name: appName, exact: false }).first();
