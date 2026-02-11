@@ -434,7 +434,7 @@ var React$1 = /*#__PURE__*/_mergeNamespaces({
 }, [reactExports]);
 
 /**
- * react-router v7.8.2
+ * react-router v7.13.0
  *
  * Copyright (c) Remix Software Inc.
  *
@@ -904,13 +904,24 @@ function stripBasename(pathname, basename) {
   }
   return pathname.slice(startIndex) || "/";
 }
+var ABSOLUTE_URL_REGEX = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 function resolvePath(to, fromPathname = "/") {
   let {
     pathname: toPathname,
     search = "",
     hash = ""
   } = typeof to === "string" ? parsePath(to) : to;
-  let pathname = toPathname ? toPathname.startsWith("/") ? toPathname : resolvePathname(toPathname, fromPathname) : fromPathname;
+  let pathname;
+  if (toPathname) {
+    toPathname = toPathname.replace(/\/\/+/g, "/");
+    if (toPathname.startsWith("/")) {
+      pathname = resolvePathname(toPathname.substring(1), "/");
+    } else {
+      pathname = resolvePathname(toPathname, fromPathname);
+    }
+  } else {
+    pathname = fromPathname;
+  }
   return {
     pathname,
     search: normalizeSearch(search),
@@ -980,9 +991,58 @@ var joinPaths = paths => paths.join("/").replace(/\/\/+/g, "/");
 var normalizePathname = pathname => pathname.replace(/\/+$/, "").replace(/^\/*/, "/");
 var normalizeSearch = search => !search || search === "?" ? "" : search.startsWith("?") ? search : "?" + search;
 var normalizeHash = hash => !hash || hash === "#" ? "" : hash.startsWith("#") ? hash : "#" + hash;
+var ErrorResponseImpl = class {
+  constructor(status, statusText, data2, internal = false) {
+    this.status = status;
+    this.statusText = statusText || "";
+    this.internal = internal;
+    if (data2 instanceof Error) {
+      this.data = data2.toString();
+      this.error = data2;
+    } else {
+      this.data = data2;
+    }
+  }
+};
 function isRouteErrorResponse(error) {
   return error != null && typeof error.status === "number" && typeof error.statusText === "string" && typeof error.internal === "boolean" && "data" in error;
 }
+function getRoutePattern(matches) {
+  return matches.map(m => m.route.path).filter(Boolean).join("/").replace(/\/\/*/g, "/") || "/";
+}
+var isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined" && typeof window.document.createElement !== "undefined";
+function parseToInfo(_to, basename) {
+  let to = _to;
+  if (typeof to !== "string" || !ABSOLUTE_URL_REGEX.test(to)) {
+    return {
+      absoluteURL: void 0,
+      isExternal: false,
+      to
+    };
+  }
+  let absoluteURL = to;
+  let isExternal = false;
+  if (isBrowser) {
+    try {
+      let currentUrl = new URL(window.location.href);
+      let targetUrl = to.startsWith("//") ? new URL(currentUrl.protocol + to) : new URL(to);
+      let path = stripBasename(targetUrl.pathname, basename);
+      if (targetUrl.origin === currentUrl.origin && path != null) {
+        to = path + targetUrl.search + targetUrl.hash;
+      } else {
+        isExternal = true;
+      }
+    } catch (e) {
+      warning(false, `<Link to="${to}"> contains an invalid URL which will probably break when clicked - please update to a valid URL path.`);
+    }
+  }
+  return {
+    absoluteURL,
+    isExternal,
+    to
+  };
+}
+Object.getOwnPropertyNames(Object.prototype).sort().join("\0");
 
 // lib/router/router.ts
 var validMutationMethodsArr = ["POST", "PUT", "PATCH", "DELETE"];
@@ -993,6 +1053,7 @@ var DataRouterContext = /*#__PURE__*/reactExports.createContext(null);
 DataRouterContext.displayName = "DataRouter";
 var DataRouterStateContext = /*#__PURE__*/reactExports.createContext(null);
 DataRouterStateContext.displayName = "DataRouterState";
+var RSCRouterContext = /*#__PURE__*/reactExports.createContext(false);
 var ViewTransitionContext = /*#__PURE__*/reactExports.createContext({
   isTransitioning: false
 });
@@ -1013,6 +1074,33 @@ var RouteContext = /*#__PURE__*/reactExports.createContext({
 RouteContext.displayName = "Route";
 var RouteErrorContext = /*#__PURE__*/reactExports.createContext(null);
 RouteErrorContext.displayName = "RouteError";
+
+// lib/errors.ts
+var ERROR_DIGEST_BASE = "REACT_ROUTER_ERROR";
+var ERROR_DIGEST_REDIRECT = "REDIRECT";
+var ERROR_DIGEST_ROUTE_ERROR_RESPONSE = "ROUTE_ERROR_RESPONSE";
+function decodeRedirectErrorDigest(digest) {
+  if (digest.startsWith(`${ERROR_DIGEST_BASE}:${ERROR_DIGEST_REDIRECT}:{`)) {
+    try {
+      let parsed = JSON.parse(digest.slice(28));
+      if (typeof parsed === "object" && parsed && typeof parsed.status === "number" && typeof parsed.statusText === "string" && typeof parsed.location === "string" && typeof parsed.reloadDocument === "boolean" && typeof parsed.replace === "boolean") {
+        return parsed;
+      }
+    } catch {}
+  }
+}
+function decodeRouteErrorResponseDigest(digest) {
+  if (digest.startsWith(`${ERROR_DIGEST_BASE}:${ERROR_DIGEST_ROUTE_ERROR_RESPONSE}:{`)) {
+    try {
+      let parsed = JSON.parse(digest.slice(40));
+      if (typeof parsed === "object" && parsed && typeof parsed.status === "number" && typeof parsed.statusText === "string") {
+        return new ErrorResponseImpl(parsed.status, parsed.statusText, parsed.data);
+      }
+    } catch {}
+  }
+}
+
+// lib/hooks.tsx
 function useHref(to, {
   relative
 } = {}) {
@@ -1103,12 +1191,9 @@ function useNavigateUnstable() {
 var OutletContext = /*#__PURE__*/reactExports.createContext(null);
 function useOutlet(context) {
   let outlet = reactExports.useContext(RouteContext).outlet;
-  if (outlet) {
-    return /* @__PURE__ */reactExports.createElement(OutletContext.Provider, {
-      value: context
-    }, outlet);
-  }
-  return outlet;
+  return reactExports.useMemo(() => outlet && /* @__PURE__ */reactExports.createElement(OutletContext.Provider, {
+    value: context
+  }, outlet), [outlet, context]);
 }
 function useResolvedPath(to, {
   relative
@@ -1125,7 +1210,7 @@ function useResolvedPath(to, {
 function useRoutes(routes, locationArg) {
   return useRoutesImpl(routes, locationArg);
 }
-function useRoutesImpl(routes, locationArg, dataRouterState, unstable_onError, future) {
+function useRoutesImpl(routes, locationArg, dataRouterState, onError, future) {
   invariant(useInRouterContext(),
   // TODO: This error is probably because they somehow have 2 versions of the
   // router loaded. We can help them understand how to avoid that.
@@ -1173,12 +1258,18 @@ Please change the parent <Route path="${parentPath}"> to <Route path="${parentPa
   let renderedMatches = _renderMatches(matches && matches.map(match => Object.assign({}, match, {
     params: Object.assign({}, parentParams, match.params),
     pathname: joinPaths([parentPathnameBase,
-    // Re-encode pathnames that were decoded inside matchRoutes
-    navigator.encodeLocation ? navigator.encodeLocation(match.pathname).pathname : match.pathname]),
+    // Re-encode pathnames that were decoded inside matchRoutes.
+    // Pre-encode `?` and `#` ahead of `encodeLocation` because it uses
+    // `new URL()` internally and we need to prevent it from treating
+    // them as separators
+    navigator.encodeLocation ? navigator.encodeLocation(match.pathname.replace(/\?/g, "%3F").replace(/#/g, "%23")).pathname : match.pathname]),
     pathnameBase: match.pathnameBase === "/" ? parentPathnameBase : joinPaths([parentPathnameBase,
     // Re-encode pathnames that were decoded inside matchRoutes
-    navigator.encodeLocation ? navigator.encodeLocation(match.pathnameBase).pathname : match.pathnameBase])
-  })), parentMatches, dataRouterState, unstable_onError, future);
+    // Pre-encode `?` and `#` ahead of `encodeLocation` because it uses
+    // `new URL()` internally and we need to prevent it from treating
+    // them as separators
+    navigator.encodeLocation ? navigator.encodeLocation(match.pathnameBase.replace(/\?/g, "%3F").replace(/#/g, "%23")).pathname : match.pathnameBase])
+  })), parentMatches, dataRouterState, onError, future);
   if (locationArg && renderedMatches) {
     return /* @__PURE__ */reactExports.createElement(LocationContext.Provider, {
       value: {
@@ -1256,21 +1347,66 @@ var RenderErrorBoundary = class extends reactExports.Component {
     };
   }
   componentDidCatch(error, errorInfo) {
-    if (this.props.unstable_onError) {
-      this.props.unstable_onError(error, errorInfo);
+    if (this.props.onError) {
+      this.props.onError(error, errorInfo);
     } else {
       console.error("React Router caught the following error during render", error);
     }
   }
   render() {
-    return this.state.error !== void 0 ? /* @__PURE__ */reactExports.createElement(RouteContext.Provider, {
+    let error = this.state.error;
+    if (this.context && typeof error === "object" && error && "digest" in error && typeof error.digest === "string") {
+      const decoded = decodeRouteErrorResponseDigest(error.digest);
+      if (decoded) error = decoded;
+    }
+    let result = error !== void 0 ? /* @__PURE__ */reactExports.createElement(RouteContext.Provider, {
       value: this.props.routeContext
     }, /* @__PURE__ */reactExports.createElement(RouteErrorContext.Provider, {
-      value: this.state.error,
+      value: error,
       children: this.props.component
     })) : this.props.children;
+    if (this.context) {
+      return /* @__PURE__ */reactExports.createElement(RSCErrorHandler, {
+        error
+      }, result);
+    }
+    return result;
   }
 };
+RenderErrorBoundary.contextType = RSCRouterContext;
+var errorRedirectHandledMap = /* @__PURE__ */new WeakMap();
+function RSCErrorHandler({
+  children,
+  error
+}) {
+  let {
+    basename
+  } = reactExports.useContext(NavigationContext);
+  if (typeof error === "object" && error && "digest" in error && typeof error.digest === "string") {
+    let redirect2 = decodeRedirectErrorDigest(error.digest);
+    if (redirect2) {
+      let existingRedirect = errorRedirectHandledMap.get(error);
+      if (existingRedirect) throw existingRedirect;
+      let parsed = parseToInfo(redirect2.location, basename);
+      if (isBrowser && !errorRedirectHandledMap.get(error)) {
+        if (parsed.isExternal || redirect2.reloadDocument) {
+          window.location.href = parsed.absoluteURL || parsed.to;
+        } else {
+          const redirectPromise = Promise.resolve().then(() => window.__reactRouterDataRouter.navigate(parsed.to, {
+            replace: redirect2.replace
+          }));
+          errorRedirectHandledMap.set(error, redirectPromise);
+          throw redirectPromise;
+        }
+      }
+      return /* @__PURE__ */reactExports.createElement("meta", {
+        httpEquiv: "refresh",
+        content: `0;url=${parsed.absoluteURL || parsed.to}`
+      });
+    }
+  }
+  return children;
+}
 function RenderedRoute({
   routeContext,
   match,
@@ -1284,7 +1420,7 @@ function RenderedRoute({
     value: routeContext
   }, children);
 }
-function _renderMatches(matches, parentMatches = [], dataRouterState = null, unstable_onError = null, future = null) {
+function _renderMatches(matches, parentMatches = [], dataRouterState = null, onErrorHandler = null, future = null) {
   if (matches == null) {
     if (!dataRouterState) {
       return null;
@@ -1330,6 +1466,14 @@ function _renderMatches(matches, parentMatches = [], dataRouterState = null, uns
       }
     }
   }
+  let onError = dataRouterState && onErrorHandler ? (error, errorInfo) => {
+    onErrorHandler(error, {
+      location: dataRouterState.location,
+      params: dataRouterState.matches?.[0]?.params ?? {},
+      unstable_pattern: getRoutePattern(dataRouterState.matches),
+      errorInfo
+    });
+  } : void 0;
   return renderedMatches.reduceRight((outlet, match, index) => {
     let error;
     let shouldRenderHydrateFallback = false;
@@ -1384,7 +1528,7 @@ function _renderMatches(matches, parentMatches = [], dataRouterState = null, uns
         matches: matches2,
         isDataRoute: true
       },
-      unstable_onError
+      onError
     }) : getChildren();
   }, null);
 }
@@ -1437,7 +1581,7 @@ function useNavigateStable() {
     warning(activeRef.current, navigateEffectWarning);
     if (!activeRef.current) return;
     if (typeof to === "number") {
-      router.navigate(to);
+      await router.navigate(to);
     } else {
       await router.navigate(to, {
         fromRouteId: id,
@@ -1466,7 +1610,8 @@ function Router({
   location: locationProp,
   navigationType = "POP" /* Pop */,
   navigator,
-  static: staticProp = false
+  static: staticProp = false,
+  unstable_useTransitions
 }) {
   invariant(!useInRouterContext(), `You cannot render a <Router> inside another <Router>. You should never have more than one in your app.`);
   let basename = basenameProp.replace(/^\/*/, "/");
@@ -1474,8 +1619,9 @@ function Router({
     basename,
     navigator,
     static: staticProp,
+    unstable_useTransitions,
     future: {}
-  }), [basename, navigator, staticProp]);
+  }), [basename, navigator, staticProp, unstable_useTransitions]);
   if (typeof locationProp === "string") {
     locationProp = parsePath(locationProp);
   }
@@ -1539,6 +1685,7 @@ function createRoutesFromChildren(children, parentPath = []) {
       Component: element.props.Component,
       index: element.props.index,
       path: element.props.path,
+      middleware: element.props.middleware,
       loader: element.props.loader,
       action: element.props.action,
       hydrateFallbackElement: element.props.hydrateFallbackElement,
@@ -1562,7 +1709,7 @@ function createRoutesFromChildren(children, parentPath = []) {
 var defaultMethod = "get";
 var defaultEncType = "application/x-www-form-urlencoded";
 function isHtmlElement(object) {
-  return object != null && typeof object.tagName === "string";
+  return typeof HTMLElement !== "undefined" && object instanceof HTMLElement;
 }
 function isButtonElement(object) {
   return isHtmlElement(object) && object.tagName.toLowerCase() === "button";
@@ -1669,17 +1816,25 @@ function invariant2(value, message) {
     throw new Error(message);
   }
 }
-function singleFetchUrl(reqUrl, basename, extension) {
+function singleFetchUrl(reqUrl, basename, trailingSlashAware, extension) {
   let url = typeof reqUrl === "string" ? new URL(reqUrl,
   // This can be called during the SSR flow via PrefetchPageLinksImpl so
   // don't assume window is available
   typeof window === "undefined" ? "server://singlefetch/" : window.location.origin) : reqUrl;
-  if (url.pathname === "/") {
-    url.pathname = `_root.${extension}`;
-  } else if (basename && stripBasename(url.pathname, basename) === "/") {
-    url.pathname = `${basename.replace(/\/$/, "")}/_root.${extension}`;
+  if (trailingSlashAware) {
+    if (url.pathname.endsWith("/")) {
+      url.pathname = `${url.pathname}_.${extension}`;
+    } else {
+      url.pathname = `${url.pathname}.${extension}`;
+    }
   } else {
-    url.pathname = `${url.pathname.replace(/\/$/, "")}.${extension}`;
+    if (url.pathname === "/") {
+      url.pathname = `_root.${extension}`;
+    } else if (basename && stripBasename(url.pathname, basename) === "/") {
+      url.pathname = `${basename.replace(/\/$/, "")}/_root.${extension}`;
+    } else {
+      url.pathname = `${url.pathname.replace(/\/$/, "")}.${extension}`;
+    }
   }
   return url;
 }
@@ -1957,6 +2112,7 @@ function PrefetchPageLinksImpl({
 }) {
   let location = useLocation();
   let {
+    future,
     manifest,
     routeModules
   } = useFrameworkContext();
@@ -1991,12 +2147,12 @@ function PrefetchPageLinksImpl({
     if (routesParams.size === 0) {
       return [];
     }
-    let url = singleFetchUrl(page, basename, "data");
+    let url = singleFetchUrl(page, basename, future.unstable_trailingSlashAwareDataRequests, "data");
     if (foundOptOutRoute && routesParams.size > 0) {
       url.searchParams.set("_routes", nextMatches.filter(m => routesParams.has(m.route.id)).map(m => m.route.id).join(","));
     }
     return [url.pathname + url.search];
-  }, [basename, loaderData, location, manifest, newMatchesForData, nextMatches, page, routeModules]);
+  }, [basename, future.unstable_trailingSlashAwareDataRequests, loaderData, location, manifest, newMatchesForData, nextMatches, page, routeModules]);
   let moduleHrefs = reactExports.useMemo(() => getModuleLinkHrefs(newMatchesForAssets, manifest), [newMatchesForAssets, manifest]);
   let keyedPrefetchLinks = useKeyedPrefetchLinks(newMatchesForAssets);
   return /* @__PURE__ */reactExports.createElement(reactExports.Fragment, null, dataHrefs.map(href => /* @__PURE__ */reactExports.createElement("link", {
@@ -2020,7 +2176,8 @@ function PrefetchPageLinksImpl({
   reactExports.createElement("link", {
     key,
     nonce: linkProps.nonce,
-    ...link
+    ...link,
+    crossOrigin: link.crossOrigin ?? linkProps.crossOrigin
   })));
 }
 function mergeRefs(...refs) {
@@ -2034,17 +2191,18 @@ function mergeRefs(...refs) {
     });
   };
 }
-var isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined" && typeof window.document.createElement !== "undefined";
+var isBrowser2 = typeof window !== "undefined" && typeof window.document !== "undefined" && typeof window.document.createElement !== "undefined";
 try {
-  if (isBrowser) {
+  if (isBrowser2) {
     window.__reactRouterVersion =
     // @ts-expect-error
-    "7.8.2";
+    "7.13.0";
   }
 } catch (e) {}
 function HashRouter({
   basename,
   children,
+  unstable_useTransitions,
   window: window2
 }) {
   let historyRef = reactExports.useRef();
@@ -2060,15 +2218,20 @@ function HashRouter({
     location: history.location
   });
   let setState = reactExports.useCallback(newState => {
-    reactExports.startTransition(() => setStateImpl(newState));
-  }, [setStateImpl]);
+    if (unstable_useTransitions === false) {
+      setStateImpl(newState);
+    } else {
+      reactExports.startTransition(() => setStateImpl(newState));
+    }
+  }, [unstable_useTransitions]);
   reactExports.useLayoutEffect(() => history.listen(setState), [history, setState]);
   return /* @__PURE__ */reactExports.createElement(Router, {
     basename,
     children,
     location: state.location,
     navigationType: state.action,
-    navigator: history
+    navigator: history,
+    unstable_useTransitions
   });
 }
 var ABSOLUTE_URL_REGEX2 = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
@@ -2084,31 +2247,16 @@ var Link$1 = /*#__PURE__*/reactExports.forwardRef(function LinkWithRef({
   to,
   preventScrollReset,
   viewTransition,
+  unstable_defaultShouldRevalidate,
   ...rest
 }, forwardedRef) {
   let {
-    basename
+    basename,
+    unstable_useTransitions
   } = reactExports.useContext(NavigationContext);
   let isAbsolute = typeof to === "string" && ABSOLUTE_URL_REGEX2.test(to);
-  let absoluteHref;
-  let isExternal = false;
-  if (typeof to === "string" && isAbsolute) {
-    absoluteHref = to;
-    if (isBrowser) {
-      try {
-        let currentUrl = new URL(window.location.href);
-        let targetUrl = to.startsWith("//") ? new URL(currentUrl.protocol + to) : new URL(to);
-        let path = stripBasename(targetUrl.pathname, basename);
-        if (targetUrl.origin === currentUrl.origin && path != null) {
-          to = path + targetUrl.search + targetUrl.hash;
-        } else {
-          isExternal = true;
-        }
-      } catch (e) {
-        warning(false, `<Link to="${to}"> contains an invalid URL which will probably break when clicked - please update to a valid URL path.`);
-      }
-    }
-  }
+  let parsed = parseToInfo(to, basename);
+  to = parsed.to;
   let href = useHref(to, {
     relative
   });
@@ -2119,7 +2267,9 @@ var Link$1 = /*#__PURE__*/reactExports.forwardRef(function LinkWithRef({
     target,
     preventScrollReset,
     relative,
-    viewTransition
+    viewTransition,
+    unstable_defaultShouldRevalidate,
+    unstable_useTransitions
   });
   function handleClick(event) {
     if (onClick) onClick(event);
@@ -2133,8 +2283,8 @@ var Link$1 = /*#__PURE__*/reactExports.forwardRef(function LinkWithRef({
   reactExports.createElement("a", {
     ...rest,
     ...prefetchHandlers,
-    href: absoluteHref || href,
-    onClick: isExternal || reloadDocument ? onClick : handleClick,
+    href: parsed.absoluteURL || href,
+    onClick: parsed.isExternal || reloadDocument ? onClick : handleClick,
     ref: mergeRefs(forwardedRef, prefetchRef),
     target,
     "data-discover": !isAbsolute && discover === "render" ? "true" : void 0
@@ -2219,8 +2369,12 @@ var Form = /*#__PURE__*/reactExports.forwardRef(({
   relative,
   preventScrollReset,
   viewTransition,
+  unstable_defaultShouldRevalidate,
   ...props
 }, forwardedRef) => {
+  let {
+    unstable_useTransitions
+  } = reactExports.useContext(NavigationContext);
   let submit = useSubmit();
   let formAction = useFormAction(action, {
     relative
@@ -2233,7 +2387,7 @@ var Form = /*#__PURE__*/reactExports.forwardRef(({
     event.preventDefault();
     let submitter = event.nativeEvent.submitter;
     let submitMethod = submitter?.getAttribute("formmethod") || method;
-    submit(submitter || event.currentTarget, {
+    let doSubmit = () => submit(submitter || event.currentTarget, {
       fetcherKey,
       method: submitMethod,
       navigate,
@@ -2241,8 +2395,14 @@ var Form = /*#__PURE__*/reactExports.forwardRef(({
       state,
       relative,
       preventScrollReset,
-      viewTransition
+      viewTransition,
+      unstable_defaultShouldRevalidate
     });
+    if (unstable_useTransitions && navigate !== false) {
+      reactExports.startTransition(() => doSubmit());
+    } else {
+      doSubmit();
+    }
   };
   return /* @__PURE__ */reactExports.createElement("form", {
     ref: forwardedRef,
@@ -2268,7 +2428,9 @@ function useLinkClickHandler(to, {
   state,
   preventScrollReset,
   relative,
-  viewTransition
+  viewTransition,
+  unstable_defaultShouldRevalidate,
+  unstable_useTransitions
 } = {}) {
   let navigate = useNavigate();
   let location = useLocation();
@@ -2279,15 +2441,21 @@ function useLinkClickHandler(to, {
     if (shouldProcessLinkClick(event, target)) {
       event.preventDefault();
       let replace2 = replaceProp !== void 0 ? replaceProp : createPath(location) === createPath(path);
-      navigate(to, {
+      let doNavigate = () => navigate(to, {
         replace: replace2,
         state,
         preventScrollReset,
         relative,
-        viewTransition
+        viewTransition,
+        unstable_defaultShouldRevalidate
       });
+      if (unstable_useTransitions) {
+        reactExports.startTransition(() => doNavigate());
+      } else {
+        doNavigate();
+      }
     }
-  }, [location, navigate, path, replaceProp, state, target, to, preventScrollReset, relative, viewTransition]);
+  }, [location, navigate, path, replaceProp, state, target, to, preventScrollReset, relative, viewTransition, unstable_defaultShouldRevalidate, unstable_useTransitions]);
 }
 var fetcherId = 0;
 var getUniqueFetcherId = () => `__${String(++fetcherId)}__`;
@@ -2299,6 +2467,8 @@ function useSubmit() {
     basename
   } = reactExports.useContext(NavigationContext);
   let currentRouteId = useRouteId();
+  let routerFetch = router.fetch;
+  let routerNavigate = router.navigate;
   return reactExports.useCallback(async (target, options = {}) => {
     let {
       action,
@@ -2309,7 +2479,8 @@ function useSubmit() {
     } = getFormSubmissionInfo(target, basename);
     if (options.navigate === false) {
       let key = options.fetcherKey || getUniqueFetcherId();
-      await router.fetch(key, currentRouteId, options.action || action, {
+      await routerFetch(key, currentRouteId, options.action || action, {
+        unstable_defaultShouldRevalidate: options.unstable_defaultShouldRevalidate,
         preventScrollReset: options.preventScrollReset,
         formData,
         body,
@@ -2318,7 +2489,8 @@ function useSubmit() {
         flushSync: options.flushSync
       });
     } else {
-      await router.navigate(options.action || action, {
+      await routerNavigate(options.action || action, {
+        unstable_defaultShouldRevalidate: options.unstable_defaultShouldRevalidate,
         preventScrollReset: options.preventScrollReset,
         formData,
         body,
@@ -2331,7 +2503,7 @@ function useSubmit() {
         viewTransition: options.viewTransition
       });
     }
-  }, [router, basename, currentRouteId]);
+  }, [routerFetch, routerNavigate, basename, currentRouteId]);
 }
 function useFormAction(action, {
   relative
@@ -2573,6 +2745,10 @@ function requireReactDom () {
 	return reactDom.exports;
 }
 
+var REGEX = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
+function validate(uuid) {
+  return typeof uuid === 'string' && REGEX.test(uuid);
+}
 const byteToHex = [];
 for (let i = 0; i < 256; ++i) {
   byteToHex.push((i + 0x100).toString(16).slice(1));
@@ -2595,10 +2771,7 @@ const randomUUID = typeof crypto !== 'undefined' && crypto.randomUUID && crypto.
 var native = {
   randomUUID
 };
-function v4(options, buf, offset) {
-  if (native.randomUUID && true && !options) {
-    return native.randomUUID();
-  }
+function _v4(options, buf, offset) {
   options = options || {};
   const rnds = options.random ?? options.rng?.() ?? rng();
   if (rnds.length < 16) {
@@ -2607,6 +2780,12 @@ function v4(options, buf, offset) {
   rnds[6] = rnds[6] & 0x0f | 0x40;
   rnds[8] = rnds[8] & 0x3f | 0x80;
   return unsafeStringify(rnds);
+}
+function v4(options, buf, offset) {
+  if (native.randomUUID && true && !options) {
+    return native.randomUUID();
+  }
+  return _v4(options);
 }
 const VERSION = 'current';
 function assertConnection(falcon) {
@@ -2622,6 +2801,13 @@ event) {
 const CONNECTION_TIMEOUT = 5_000;
 const API_TIMEOUT = 30_000;
 const NAVIGATION_TIMEOUT = 5_000;
+function sanitizeMessageId(messageId) {
+  // Only allow valid UUID strings
+  if (typeof messageId !== 'string' || !validate(messageId)) {
+    return null;
+  }
+  return messageId;
+}
 function timeoutForMessage(message) {
   const timeout = message.type === 'connect' ? CONNECTION_TIMEOUT : message.type === 'api' ? API_TIMEOUT : message.type === 'navigateTo' ? NAVIGATION_TIMEOUT :
   // Requests not explicitly covered above will not have a timeout. This includes 'fileUpload', which is a user interaction that can take any amount of time.
@@ -2716,12 +2902,18 @@ class Bridge {
     const {
       messageId
     } = event.data.meta;
-    const callback = this.pendingMessages.get(messageId);
-    if (!callback) {
+    // Sanitize messageId to prevent unvalidated dynamic method calls
+    const sanitizedMessageId = sanitizeMessageId(messageId);
+    if (!sanitizedMessageId) {
+      this.throwError(`Received message with invalid messageId format`);
+      return;
+    }
+    const callback = this.pendingMessages.get(sanitizedMessageId);
+    if (!callback || typeof callback !== 'function') {
       this.throwError(`Received unexpected message`);
       return;
     }
-    this.pendingMessages.delete(messageId);
+    this.pendingMessages.delete(sanitizedMessageId);
     callback(message.payload);
   };
   throwError(message) {
