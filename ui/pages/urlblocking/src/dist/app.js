@@ -434,7 +434,7 @@ var React$1 = /*#__PURE__*/_mergeNamespaces({
 }, [reactExports]);
 
 /**
- * react-router v7.13.0
+ * react-router v7.12.0
  *
  * Copyright (c) Remix Software Inc.
  *
@@ -905,6 +905,7 @@ function stripBasename(pathname, basename) {
   return pathname.slice(startIndex) || "/";
 }
 var ABSOLUTE_URL_REGEX = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+var isAbsoluteUrl = url => ABSOLUTE_URL_REGEX.test(url);
 function resolvePath(to, fromPathname = "/") {
   let {
     pathname: toPathname,
@@ -913,11 +914,19 @@ function resolvePath(to, fromPathname = "/") {
   } = typeof to === "string" ? parsePath(to) : to;
   let pathname;
   if (toPathname) {
-    toPathname = toPathname.replace(/\/\/+/g, "/");
-    if (toPathname.startsWith("/")) {
-      pathname = resolvePathname(toPathname.substring(1), "/");
+    if (isAbsoluteUrl(toPathname)) {
+      pathname = toPathname;
     } else {
-      pathname = resolvePathname(toPathname, fromPathname);
+      if (toPathname.includes("//")) {
+        let oldPathname = toPathname;
+        toPathname = toPathname.replace(/\/\/+/g, "/");
+        warning(false, `Pathnames cannot have embedded double slashes - normalizing ${oldPathname} -> ${toPathname}`);
+      }
+      if (toPathname.startsWith("/")) {
+        pathname = resolvePathname(toPathname.substring(1), "/");
+      } else {
+        pathname = resolvePathname(toPathname, fromPathname);
+      }
     }
   } else {
     pathname = fromPathname;
@@ -2176,8 +2185,7 @@ function PrefetchPageLinksImpl({
   reactExports.createElement("link", {
     key,
     nonce: linkProps.nonce,
-    ...link,
-    crossOrigin: link.crossOrigin ?? linkProps.crossOrigin
+    ...link
   })));
 }
 function mergeRefs(...refs) {
@@ -2196,7 +2204,7 @@ try {
   if (isBrowser2) {
     window.__reactRouterVersion =
     // @ts-expect-error
-    "7.13.0";
+    "7.12.0";
   }
 } catch (e) {}
 function HashRouter({
