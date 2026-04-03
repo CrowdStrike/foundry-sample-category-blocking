@@ -57,7 +57,7 @@ def validate_record(record):
     if not record.get('domain'):
         raise ValueError("Missing required field: domain")
 
-def process_csv_records(csv_path, customobjects, collection_name="domain", collection_version="v2.0"):
+def process_csv_records(csv_path, custom_storage, collection_name="domain", collection_version="v2.0"):
     """Process CSV records and create collection objects."""
     success_count = 0
     error_count = 0
@@ -79,7 +79,7 @@ def process_csv_records(csv_path, customobjects, collection_name="domain", colle
                         validate_record(record)
 
                         # Create collection object
-                        customobjects.PutObjectByVersion(
+                        custom_storage.PutObjectByVersion(
                             body=record,
                             collection_name=collection_name,
                             collection_version=collection_version,
@@ -108,7 +108,7 @@ def import_csv_handler(request: Request) -> Response:
 
     try:
         # Initialize API client
-        customobjects = CustomStorage()
+        custom_storage = CustomStorage()
 
         # Get the directory where main.py is located
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -117,7 +117,7 @@ def import_csv_handler(request: Request) -> Response:
         # Process CSV records
         results = process_csv_records(
             csv_path=csv_file,
-            customobjects=customobjects,
+            custom_storage=custom_storage,
             collection_name="domain",
             collection_version="v2.0"
         )
@@ -611,7 +611,7 @@ def list_categories(request: Request) -> Response:
     """List all categories from the domain collection."""
     try:
         # Initialize API client
-        customobjects = CustomStorage()
+        custom_storage = CustomStorage()
 
         # Set headers if APP_ID is available
         # headers = {}
@@ -630,7 +630,7 @@ def list_categories(request: Request) -> Response:
         print(f"Query params - limit: {limit}")  # Debug logging
 
         # Query the collection using list method
-        response = customobjects.ListObjectsByVersion(
+        response = custom_storage.ListObjectsByVersion(
             collection_name='domain',
             limit=limit,
             collection_version="v2.0"
@@ -705,7 +705,7 @@ def search_categories(request: Request) -> Response:
     """Search for categories in the domain collection."""
     try:
         # Initialize API client
-        customobjects = CustomStorage()
+        custom_storage = CustomStorage()
 
         # Get search parameters from request body
         body = request.body or {}
@@ -716,7 +716,7 @@ def search_categories(request: Request) -> Response:
 
         # Query the collection using service class method
         object_key = category.replace(' ', '_') if category else "Games"
-        response = customobjects.GetVersionedObject(
+        response = custom_storage.GetVersionedObject(
             collection_name="domain",
             collection_version="v2.0",
             object_key=object_key
@@ -768,7 +768,7 @@ def manage_category(request: Request, _: [dict[str, any], None], logger: Logger)
             return Response(code=400, body={"error": "URLs are required"})
 
         # Initialize API client
-        customobjects = CustomStorage(debug=True)
+        custom_storage = CustomStorage(debug=True)
 
         # Process comma-separated URLs and add wildcards
         url_list = []
@@ -791,7 +791,7 @@ def manage_category(request: Request, _: [dict[str, any], None], logger: Logger)
 
         # Create or update collection object
         try:
-            response = customobjects.PutObjectByVersion(
+            response = custom_storage.PutObjectByVersion(
                 body=record,
                 collection_name="domain",
                 collection_version="v2.0",
@@ -850,7 +850,7 @@ def manage_relationship(request: Request, _: [dict[str, any], None], logger: Log
 
     try:
         # Initialize API client
-        customobjects = CustomStorage(debug=True)
+        custom_storage = CustomStorage(debug=True)
 
         # Extract data directly from request body
         relationship_record = {
@@ -886,7 +886,7 @@ def manage_relationship(request: Request, _: [dict[str, any], None], logger: Log
 
         # Store in collection
         try:
-            response = customobjects.PutObjectByVersion(
+            response = custom_storage.PutObjectByVersion(
                 body=relationship_record,
                 collection_name="relationship",
                 collection_version="v5.0",
@@ -939,9 +939,9 @@ def manage_relationship(request: Request, _: [dict[str, any], None], logger: Log
 def get_relationship(_: Request, __: [dict[str, any], None], logger: Logger) -> Response:
     """Get all relationship and format for graph visualization."""
     try:
-        customobjects = CustomStorage(debug=True)
+        custom_storage = CustomStorage(debug=True)
 
-        response = customobjects.ListObjectsByVersion(
+        response = custom_storage.ListObjectsByVersion(
             collection_name="relationship",
             collection_version="v5.0",
             limit=1000

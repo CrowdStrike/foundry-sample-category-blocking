@@ -194,7 +194,7 @@ class ProcessCsvRecordsTestCase(unittest.TestCase):
 
         results = main.process_csv_records(
             csv_path="/fake/path.csv",
-            customobjects=mock_api,
+            custom_storage=mock_api,
             collection_name="domain",
             collection_version="v2.0"
         )
