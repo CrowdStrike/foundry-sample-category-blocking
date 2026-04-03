@@ -239,4 +239,15 @@ test.describe('Category Blocking App E2E Tests', () => {
       logger.success('Category Blocking app UI verification completed - no errors detected');
     });
   });
+
+  test.describe('Custom Categories - Collection Interaction', () => {
+    test('should create a custom category via the form', async () => {
+      test.setTimeout(60000);
+      await categoryBlockingPage.navigateToInstalledApp();
+      await categoryBlockingPage.createCustomCategory(
+        `e2e-test-${Date.now()}`,
+        'test-e2e.example.com, test-e2e2.example.com'
+      );
+    });
+  });
 });
