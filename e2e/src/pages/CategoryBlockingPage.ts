@@ -67,11 +67,12 @@ export class CategoryBlockingPage extends BasePage {
 
         // Navigate via Custom Apps menu
         await this.navigateToPath('/foundry/home', 'Foundry home page');
+        await this.page.waitForLoadState('networkidle');
 
-        // Retry with page refresh if Custom apps menu doesn't appear
-        let customAppsFound = false;
+        // Retry with page refresh if Custom apps menu or app button doesn't appear
+        let appFound = false;
         for (let attempt = 1; attempt <= 5; attempt++) {
-          const menuButton = this.page.locator('[data-test-selector="nav-trigger"]');
+          const menuButton = this.page.getByTestId('nav-trigger');
           await menuButton.waitFor({ state: 'visible', timeout: 30000 });
           await menuButton.click();
           await this.page.waitForLoadState('networkidle');
@@ -80,38 +81,53 @@ export class CategoryBlockingPage extends BasePage {
           try {
             await customAppsButton.waitFor({ state: 'visible', timeout: 20000 });
             await customAppsButton.click();
-            await this.page.waitForLoadState('networkidle');
-            customAppsFound = true;
+            await this.waiter.delay(1500);
             this.logger.info(`Custom apps button found on attempt ${attempt}`);
-            break;
           } catch (e) {
             this.logger.warn(`Custom apps not visible on attempt ${attempt}, refreshing page...`);
             await this.page.reload();
             await this.page.waitForLoadState('networkidle');
             await this.waiter.delay(3000);
+            continue;
+          }
+
+          // Check if the app button appears in the submenu
+          const appButtonCheck = this.page.getByRole('button', { name: appName, exact: false }).first();
+          try {
+            await appButtonCheck.waitFor({ state: 'visible', timeout: 10000 });
+            appFound = true;
+            this.logger.info(`App '${appName}' found in Custom apps menu on attempt ${attempt}`);
+            break;
+          } catch (e) {
+            this.logger.warn(`App '${appName}' not in Custom apps on attempt ${attempt}, refreshing page...`);
+            await this.page.reload();
+            await this.page.waitForLoadState('networkidle');
+            await this.waiter.delay(3000);
           }
         }
-        if (!customAppsFound) {
-          throw new Error('Custom apps button not found after 5 attempts with page refresh');
+        if (!appFound) {
+          throw new Error(`App '${appName}' not found in Custom apps menu after 5 attempts with page refresh`);
         }
 
-        // First expand the app section by clicking the button
+        // Expand the app menu only if not already expanded
         const appButton = this.page.getByRole('button', { name: appName, exact: false }).first();
-        if (await this.elementExists(appButton, 30000)) {
-          await this.smartClick(appButton, `App '${appName}' button`);
-
-          // Now find and click the app link (displayed as "Category Blocking")
-          const appLink = this.page.getByRole('link', { name: 'Category Blocking', exact: false });
-          await expect(appLink).toBeVisible({ timeout: 20000 });
-          await this.smartClick(appLink, 'Category Blocking link');
-
-          // Wait for navigation to app page (URL includes query params)
-          await this.page.waitForURL(/\/foundry\/page\/[a-f0-9]+(\?.*)?$/, { timeout: 15000 });
-
-          await this.verifyPageLoaded();
-        } else {
-          throw new Error(`App '${appName}' not found in Custom Apps menu`);
+        await expect(appButton).toBeVisible({ timeout: 10000 });
+        const isExpanded = await appButton.getAttribute('aria-expanded');
+        if (isExpanded !== 'true') {
+          await appButton.click();
+          await this.waiter.delay(500);
         }
+
+        // Click the app page link (scoped to this app's list to avoid ambiguity with CI app)
+        const appList = this.page.getByRole('list', { name: appName, exact: true });
+        const appLink = appList.getByTestId('section-link');
+        await expect(appLink).toBeVisible({ timeout: 20000 });
+        await this.smartClick(appLink, 'Category Blocking link');
+
+        // Wait for navigation to app page
+        await this.page.waitForURL(/\/foundry\/page\/[a-f0-9]+(\?.*)?$/, { timeout: 15000 });
+
+        await this.verifyPageLoaded();
       },
       `Navigate to ${appName} app`
     );
@@ -135,5 +151,58 @@ export class CategoryBlockingPage extends BasePage {
     } catch (error) {
       // Ignore errors during cleanup
     }
+  }
+
+  /**
+   * Create a custom category via the Custom Categories tab form.
+   * Exercises the manage_category function (CustomStorage write to domain collection).
+   */
+  async createCustomCategory(categoryName: string, domains: string): Promise<void> {
+    return this.withTiming(
+      async () => {
+        const iframe = this.page.frameLocator('iframe');
+
+        // Click Custom Categories tab
+        const customCategoriesTab = iframe.locator('sl-tab:has-text("Custom Categories") a').first();
+        await customCategoriesTab.click();
+        this.logger.info('Clicked Custom Categories tab');
+
+        // Verify tab is active
+        const activeTab = iframe.locator('sl-tab[active]', { hasText: 'Custom Categories' });
+        await expect(activeTab).toBeVisible({ timeout: 5000 });
+
+        // Fill in the Category Name input
+        const categoryInput = iframe.locator('input[placeholder="Enter category name"]');
+        await categoryInput.waitFor({ state: 'visible', timeout: 10000 });
+        await categoryInput.fill(categoryName);
+        this.logger.info(`Filled category name: ${categoryName}`);
+
+        // Fill in the Domains textarea
+        const domainsTextarea = iframe.locator('textarea[placeholder*="Enter domains"]');
+        await domainsTextarea.fill(domains);
+        this.logger.info(`Filled domains: ${domains}`);
+
+        // Click Create Category button
+        const createButton = iframe.locator('sl-button', { hasText: 'Create Category' });
+        await createButton.click({ force: true });
+        this.logger.info('Clicked Create Category button');
+
+        // Wait for sl-alert to appear in the DOM (Shoelace renders it hidden without `open`)
+        const alert = iframe.locator('sl-alert');
+        await alert.waitFor({ state: 'attached', timeout: 15000 });
+
+        // Check if we got success or error
+        const alertVariant = await alert.getAttribute('variant');
+        const alertText = await alert.textContent() || '';
+        this.logger.info(`Alert variant: ${alertVariant}, text: ${alertText.trim()}`);
+
+        if (alertVariant === 'danger') {
+          throw new Error(`Category creation failed: ${alertText.trim()}`);
+        }
+
+        this.logger.success('Custom category created successfully - CustomStorage write verified');
+      },
+      `Create custom category: ${categoryName}`
+    );
   }
 }

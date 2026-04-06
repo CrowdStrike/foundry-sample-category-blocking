@@ -7,6 +7,7 @@ It includes handlers for creating and managing categories, relationships, and fi
 
 # Standard library imports
 import csv
+import json
 import os
 import time
 import traceback
@@ -23,10 +24,8 @@ from crowdstrike.foundry.function import (
     Function,
     Request,
     Response,
-    cloud,
 )
 from falconpy import (
-    APIHarnessV2,
     CustomStorage,
     FirewallManagement,
     FirewallPolicies,
@@ -58,7 +57,7 @@ def validate_record(record):
     if not record.get('domain'):
         raise ValueError("Missing required field: domain")
 
-def process_csv_records(csv_path, customobjects, collection_name="domain", collection_version="v2.0"):
+def process_csv_records(csv_path, custom_storage, collection_name="domain", collection_version="v2.0"):
     """Process CSV records and create collection objects."""
     success_count = 0
     error_count = 0
@@ -80,12 +79,11 @@ def process_csv_records(csv_path, customobjects, collection_name="domain", colle
                         validate_record(record)
 
                         # Create collection object
-                        customobjects.PutObject(
+                        custom_storage.PutObjectByVersion(
                             body=record,
                             collection_name=collection_name,
                             collection_version=collection_version,
-                            object_key=record['category'],
-                            limit=1000
+                            object_key=record['category']
                         )
 
                         success_count += 1
@@ -110,8 +108,7 @@ def import_csv_handler(request: Request) -> Response:
 
     try:
         # Initialize API client
-        api_client = APIHarnessV2()
-        customobjects = CustomStorage(api_client, base_url=cloud())
+        custom_storage = CustomStorage()
 
         # Get the directory where main.py is located
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -120,7 +117,7 @@ def import_csv_handler(request: Request) -> Response:
         # Process CSV records
         results = process_csv_records(
             csv_path=csv_file,
-            customobjects=customobjects,
+            custom_storage=custom_storage,
             collection_name="domain",
             collection_version="v2.0"
         )
@@ -151,8 +148,7 @@ def on_create(_: Request, config: [dict[str, any], None], logger: Logger) -> Res
     try:
         # Initialize Falcon client
         try:
-            falcon = APIHarnessV2(debug=True)
-            hostgroup = HostGroup(falcon, base_url=cloud())
+            hostgroup = HostGroup(debug=True)
             logger.info("Successfully initialized Falcon client")
         except Exception as e:
             logger.error(f"Failed to initialize Falcon client: {str(e)}")
@@ -342,9 +338,8 @@ def create_rule(request: Request, config: [dict[str, any], None], logger: Logger
         logger.info(f"Cleaned URLs: {clean_urls}")
 
         # Initialize Falcon client
-        falcon = APIHarnessV2(debug=True)
-        mgmt = FirewallManagement(falcon, base_url=cloud())
-        policies = FirewallPolicies(falcon, base_url=cloud())
+        mgmt = FirewallManagement(debug=True)
+        policies = FirewallPolicies(debug=True)
         logger.info("Successfully initialized Falcon client")
 
         # Create policy
@@ -466,8 +461,7 @@ def get_domain_analytics(_: Request, __: [dict[str, any], None], logger: Logger)
     try:
         # Initialize Falcon client
         try:
-            falcon = APIHarnessV2(debug=True)
-            firewall_mgmt = FirewallManagement(falcon, base_url=cloud())
+            firewall_mgmt = FirewallManagement(debug=True)
             logger.info("Successfully initialized Falcon client")
         except Exception as e:
             logger.error(f"Failed to initialize Falcon client: {str(e)}")
@@ -617,8 +611,7 @@ def list_categories(request: Request) -> Response:
     """List all categories from the domain collection."""
     try:
         # Initialize API client
-        api_client = APIHarnessV2()
-        customobjects = CustomStorage(api_client, base_url=cloud())
+        custom_storage = CustomStorage()
 
         # Set headers if APP_ID is available
         # headers = {}
@@ -637,7 +630,7 @@ def list_categories(request: Request) -> Response:
         print(f"Query params - limit: {limit}")  # Debug logging
 
         # Query the collection using list method
-        response = customobjects.ListObjectsByVersion(
+        response = custom_storage.ListObjectsByVersion(
             collection_name='domain',
             limit=limit,
             collection_version="v2.0"
@@ -712,13 +705,7 @@ def search_categories(request: Request) -> Response:
     """Search for categories in the domain collection."""
     try:
         # Initialize API client
-        api_client = APIHarnessV2()
-        customobjects= CustomStorage(api_client, base_url=cloud())
-
-        # Set headers if APP_ID is available
-        headers = {}
-        if os.environ.get("APP_ID"):
-            headers = {"X-CS-APP-ID": os.environ.get("APP_ID")}
+        custom_storage = CustomStorage()
 
         # Get search parameters from request body
         body = request.body or {}
@@ -727,19 +714,29 @@ def search_categories(request: Request) -> Response:
 
         print(f"Search params - category: {category}, limit: {limit}")  # Debug logging
 
-        # Query the collection using list method with filter
-        response = api_client.command("GetObject",
+        # Query the collection using service class method
+        object_key = category.replace(' ', '_') if category else "Games"
+        response = custom_storage.GetVersionedObject(
             collection_name="domain",
-            limit=1000,
             collection_version="v2.0",
-            object_key="Games",
-            headers=headers
+            object_key=object_key
         )
 
         print("Raw Search Response:", response)  # Debug logging
 
+        # GetVersionedObject returns bytes on success, dict on error
+        try:
+            result = json.loads(response.decode("utf-8"))
+        except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+            # Error response is a dict
+            error_msg = response.get("errors", [{}])[0].get("message", "Unknown error") if isinstance(response, dict) else str(response)
+            return Response(
+                code=500,
+                errors=[APIError(code=500, message=f"Error fetching category: {error_msg}")]
+            )
+
         return Response(
-            body=response,
+            body=result,
             code=200
         )
 
@@ -771,8 +768,7 @@ def manage_category(request: Request, _: [dict[str, any], None], logger: Logger)
             return Response(code=400, body={"error": "URLs are required"})
 
         # Initialize API client
-        api_client = APIHarnessV2(debug=True)
-        customobjects = CustomStorage(api_client, base_url=cloud())
+        custom_storage = CustomStorage(debug=True)
 
         # Process comma-separated URLs and add wildcards
         url_list = []
@@ -795,12 +791,11 @@ def manage_category(request: Request, _: [dict[str, any], None], logger: Logger)
 
         # Create or update collection object
         try:
-            response = customobjects.PutObject(
+            response = custom_storage.PutObjectByVersion(
                 body=record,
                 collection_name="domain",
                 collection_version="v2.0",
-                object_key=category_name.replace(' ', '_'), ##removed .lower()
-                limit=1000
+                object_key=category_name.replace(' ', '_')
             )
 
             if response.get('status_code') == 200:
@@ -855,8 +850,7 @@ def manage_relationship(request: Request, _: [dict[str, any], None], logger: Log
 
     try:
         # Initialize API client
-        api_client = APIHarnessV2(debug=True)
-        customobjects = CustomStorage(api_client, base_url=cloud())
+        custom_storage = CustomStorage(debug=True)
 
         # Extract data directly from request body
         relationship_record = {
@@ -892,7 +886,7 @@ def manage_relationship(request: Request, _: [dict[str, any], None], logger: Log
 
         # Store in collection
         try:
-            response = customobjects.PutObject(
+            response = custom_storage.PutObjectByVersion(
                 body=relationship_record,
                 collection_name="relationship",
                 collection_version="v5.0",
@@ -945,10 +939,9 @@ def manage_relationship(request: Request, _: [dict[str, any], None], logger: Log
 def get_relationship(_: Request, __: [dict[str, any], None], logger: Logger) -> Response:
     """Get all relationship and format for graph visualization."""
     try:
-        api_client = APIHarnessV2(debug=True)
-        customobjects = CustomStorage(api_client, base_url=cloud())
+        custom_storage = CustomStorage(debug=True)
 
-        response = customobjects.ListObjectsByVersion(
+        response = custom_storage.ListObjectsByVersion(
             collection_name="relationship",
             collection_version="v5.0",
             limit=1000
@@ -1059,8 +1052,7 @@ def update_rules(request: Request, _: [dict[str, any], None], logger: Logger) ->
             })
 
         # Initialize Falcon client
-        api_client = APIHarnessV2(debug=True)
-        firewall_mgmt = FirewallManagement(api_client, base_url=cloud())
+        firewall_mgmt = FirewallManagement(debug=True)
 
         # Update rules for each relationship
         update_results = []

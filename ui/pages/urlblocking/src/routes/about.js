@@ -47,7 +47,7 @@ function About() {
 
       console.log('Response:', response);
 
-      if (response.code === 200) {
+      if (response.status_code === 200) {
         setStatus({
           type: 'success',
           message: `Category created successfully with ${response.body.urlCount || 0} URLs!`

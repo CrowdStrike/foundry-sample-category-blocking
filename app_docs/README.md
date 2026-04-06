@@ -1,4 +1,4 @@
-# Foundry Sample with URL Filtering
+# Category Blocking
 
 This sample is designed to show how to use URL Filtering in Falcon Foundry. It contains a few capabilities:
 
@@ -21,10 +21,11 @@ This sample is designed to show how to use URL Filtering in Falcon Foundry. It c
    - **relationship**: Stores relationship information about host groups, rule groups, and categories
 
 3. UI Pages with React components:
-   - **Home**: Main interface for creating firewall rules
-   - **FirewallRules**: Management of domain categories
-   - **DomainAnalytics**: Visualization of domain data
-   - **Relationship**: Visualization of relationships between categories, rule groups, and host groups
+   - **Category Blocking Policy**: Main interface for creating firewall rules
+   - **Custom Categories**: Management of domain categories
+   - **Domain Analytics**: Visualization of domain data
+   - **Firewall Rules**: Management of firewall blocking rules
+   - **Relationship Graph**: Visualization of relationships between categories, rule groups, and host groups
 
 ## Application Setup
 
@@ -32,32 +33,32 @@ When you install this app, you will need to go to the Firewall Rules page and cl
 
 ![Setup Application](setup.png)
 
-> **TIP**: You can import URL categories from a CSV file or manually add categories through the FirewallRules interface.
+> **TIP**: You can import URL categories from a CSV file or manually add categories through the Custom Categories interface.
 
 ## Usage
 
 After installing the app, follow these steps to get started:
 
 1. **Creating URL Categories**
-   - Navigate to the **FirewallRules** page
+   - Navigate to the **Custom Categories** page
    - Click "Import Categories" to import from a CSV file, or manually add categories
    - View and manage your categories from this interface
 
 2. **Creating Blocking Rules**
-   - Navigate to the **Home** page
+   - Navigate to the **Category Blocking Policy** page
    - Enter a policy name and select a host group
    - Select the categories you want to block
    - Click "Preview URLs" to see what will be blocked
    - Click "Create blocking rule" to deploy the rule
 
 3. **Viewing Analytics**
-   - Navigate to the **DomainAnalytics** page
+   - Navigate to the **Domain Analytics** page
    - View charts and statistics about blocked domains
    - Analyze patterns and effectiveness of your blocking rules
 
 4. **Visualizing Relationships**
-   - Navigate to the **Relationship** page
+   - Navigate to the **Relationship Graph** page
    - Explore the connections between categories, rule groups, and host groups
    - Understand how your blocking rules are structured
 
-The source code for this app can be found on GitHub: <https://github.com/CrowdStrike/foundry-sample-url-filtering>.
+The source code for this app can be found on GitHub: <https://github.com/CrowdStrike/foundry-sample-category-blocking>.
