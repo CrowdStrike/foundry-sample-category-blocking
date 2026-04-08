@@ -36,7 +36,7 @@ export class CategoryBlockingPage extends BasePage {
           await this.page.reload({ waitUntil: 'networkidle' });
           await this.page.waitForTimeout(3000);
         }
-        await expect(this.page.locator('iframe')).toBeVisible({ timeout: 20000 });
+        await expect(this.page.locator('iframe[name="portal"]')).toBeVisible({ timeout: 20000 });
         iframeVisible = true;
       } catch (e) {
         this.logger.warn(`Iframe not visible on attempt ${attempt + 1}`);
@@ -48,7 +48,7 @@ export class CategoryBlockingPage extends BasePage {
     this.logger.success('App iframe is visible');
 
     // Verify app content loaded
-    const iframe = this.page.frameLocator('iframe');
+    const iframe = this.page.frameLocator('iframe[name="portal"]');
     const heading = iframe.getByRole('heading', { name: /Category Blocking/i });
 
     await expect(heading).toBeVisible({ timeout: 30000 });
@@ -172,7 +172,7 @@ export class CategoryBlockingPage extends BasePage {
         await this.retryPageLoadAfter404();
       }
 
-      const iframe = this.page.locator('iframe');
+      const iframe = this.page.locator('iframe[name="portal"]');
       await iframe.waitFor({ state: 'visible', timeout: 30000 });
       await this.verifyPageLoaded();
       return true;
@@ -231,7 +231,7 @@ export class CategoryBlockingPage extends BasePage {
   async createCustomCategory(categoryName: string, domains: string): Promise<void> {
     return this.withTiming(
       async () => {
-        const iframe = this.page.frameLocator('iframe');
+        const iframe = this.page.frameLocator('iframe[name="portal"]');
 
         // Click Custom Categories tab
         const customCategoriesTab = iframe.locator('sl-tab:has-text("Custom Categories") a').first();
