@@ -46,7 +46,7 @@ test.describe('Category Blocking App E2E Tests', () => {
       await categoryBlockingPage.navigateToInstalledApp();
 
       // Verify iframe is present
-      const iframe = categoryBlockingPage.page.locator('iframe');
+      const iframe = categoryBlockingPage.page.locator('iframe[name="portal"]');
       await expect(iframe).toBeVisible({ timeout: 15000 });
 
       logger.success('Category Blocking app iframe loaded successfully');
@@ -58,7 +58,7 @@ test.describe('Category Blocking App E2E Tests', () => {
       await categoryBlockingPage.navigateToInstalledApp();
 
       // Get the iframe
-      const iframe = page.frameLocator('iframe');
+      const iframe = page.frameLocator('iframe[name="portal"]');
 
       // Wait for and verify main heading is visible
       const heading = iframe.locator('h1:has-text("Category Blocking")');
@@ -78,7 +78,7 @@ test.describe('Category Blocking App E2E Tests', () => {
     test('should verify all navigation tabs are present', async ({ page }) => {
       await categoryBlockingPage.navigateToInstalledApp();
 
-      const iframe = page.frameLocator('iframe');
+      const iframe = page.frameLocator('iframe[name="portal"]');
 
       // Wait for navigation to be present
       await expect(iframe.locator('h1:has-text("Category Blocking")')).toBeVisible({ timeout: 15000 });
@@ -107,7 +107,7 @@ test.describe('Category Blocking App E2E Tests', () => {
     test('should click Custom Categories tab and verify navigation', async ({ page }) => {
       await categoryBlockingPage.navigateToInstalledApp();
 
-      const iframe = page.frameLocator('iframe');
+      const iframe = page.frameLocator('iframe[name="portal"]');
 
       // Wait for app to load
       await expect(iframe.locator('h1:has-text("Category Blocking")')).toBeVisible({ timeout: 15000 });
@@ -126,7 +126,7 @@ test.describe('Category Blocking App E2E Tests', () => {
     test('should click Domain Analytics tab and verify navigation', async ({ page }) => {
       await categoryBlockingPage.navigateToInstalledApp();
 
-      const iframe = page.frameLocator('iframe');
+      const iframe = page.frameLocator('iframe[name="portal"]');
 
       // Wait for app to load
       await expect(iframe.locator('h1:has-text("Category Blocking")')).toBeVisible({ timeout: 15000 });
@@ -145,7 +145,7 @@ test.describe('Category Blocking App E2E Tests', () => {
     test('should click Firewall Rules tab and verify navigation', async ({ page }) => {
       await categoryBlockingPage.navigateToInstalledApp();
 
-      const iframe = page.frameLocator('iframe');
+      const iframe = page.frameLocator('iframe[name="portal"]');
 
       // Wait for app to load
       await expect(iframe.locator('h1:has-text("Category Blocking")')).toBeVisible({ timeout: 15000 });
@@ -164,7 +164,7 @@ test.describe('Category Blocking App E2E Tests', () => {
     test('should click Relationship Graph tab and verify navigation', async ({ page }) => {
       await categoryBlockingPage.navigateToInstalledApp();
 
-      const iframe = page.frameLocator('iframe');
+      const iframe = page.frameLocator('iframe[name="portal"]');
 
       // Wait for app to load
       await expect(iframe.locator('h1:has-text("Category Blocking")')).toBeVisible({ timeout: 15000 });
@@ -183,7 +183,7 @@ test.describe('Category Blocking App E2E Tests', () => {
     test('should verify all tabs are clickable in sequence', async ({ page }) => {
       await categoryBlockingPage.navigateToInstalledApp();
 
-      const iframe = page.frameLocator('iframe');
+      const iframe = page.frameLocator('iframe[name="portal"]');
 
       // Wait for app to load
       await expect(iframe.locator('h1:has-text("Category Blocking")')).toBeVisible({ timeout: 15000 });
@@ -217,11 +217,11 @@ test.describe('Category Blocking App E2E Tests', () => {
       await categoryBlockingPage.navigateToInstalledApp();
 
       // Verify iframe is present and visible
-      const iframe = page.locator('iframe');
+      const iframe = page.locator('iframe[name="portal"]');
       await expect(iframe).toBeVisible({ timeout: 15000 });
 
       // Get the iframe locator for content checks
-      const iframeContent = page.frameLocator('iframe');
+      const iframeContent = page.frameLocator('iframe[name="portal"]');
 
       // Verify main content loaded
       const heading = iframeContent.locator('h1:has-text("Category Blocking")');
