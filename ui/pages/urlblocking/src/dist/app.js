@@ -6243,7 +6243,9 @@ function Link({
     return /*#__PURE__*/React.createElement("a", {
       onClick: e => {
         e.preventDefault();
-        navigation.onClick(e);
+        navigation.navigateTo({
+          path: to
+        });
       },
       href: to,
       className: combinedClassName
