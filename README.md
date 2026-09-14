@@ -16,7 +16,7 @@ The Category Blocking app allows you to:
 
 ## Prerequisites
 
-* Python 3.13+ (needed if modifying the app's functions). See [Python For Beginners](https://www.python.org/about/gettingstarted/) for installation instructions.
+* Python 3.14+ (needed if modifying the app's functions). See [Python For Beginners](https://www.python.org/about/gettingstarted/) for installation instructions.
 * Node.js (needed for React JS development).
 * npm 9+ or Yarn (needed for managing UI dependencies). See https://yarnpkg.com/getting-started for installation instructions.
 * FalconPy SDK (for CrowdStrike API integration). Install with pip install crowdstrike-falconpy
