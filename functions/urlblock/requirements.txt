@@ -1,3 +1,3 @@
 crowdstrike-foundry-function==1.1.4
 crowdstrike-falconpy
-pytz
+pytz==2026.3.post1
