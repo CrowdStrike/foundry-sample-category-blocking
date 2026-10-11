@@ -31409,7 +31409,7 @@ function DomainAnalytics() {
     slot: "header"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "text-lg font-semibold text-left"
-  }, "Top 20 Most Visited Domains (Last 15 Days)")), /*#__PURE__*/React.createElement(DataTable, {
+  }, "Top 20 Most Visited Domains (Last ", analyticsData.days ?? 15, " Days)")), /*#__PURE__*/React.createElement(DataTable, {
     headers: ['#', 'Domain', 'Visits'],
     rows: bar.domains.map((domain, i) => [i + 1, domain, bar.visits[i]])
   })), /*#__PURE__*/React.createElement(card_default, {

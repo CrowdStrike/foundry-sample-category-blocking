@@ -2,6 +2,7 @@
 # pylint: disable=missing-class-docstring,missing-function-docstring,invalid-name
 
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from crowdstrike.foundry.function import Request, RequestParams
@@ -442,9 +443,35 @@ class PolicyQueryTestCase(PolicyBase):
 
 
 class AnalyticsTruncatedTestCase(unittest.TestCase):
-    def run_handler(self, mgmt):
+    def run_handler(self, mgmt, query=None):
         with patch.object(analytics, "get_client", return_value=mgmt):
-            return analytics.get_domain_analytics(req(), None, MagicMock())
+            return analytics.get_domain_analytics(req(query=query), None, MagicMock())
+
+    def window_days(self, mgmt):
+        """Days between now and the start of the event filter sent to Falcon."""
+        time_filter = mgmt.query_events.call_args.kwargs["parameters"]["filter"]
+        start = datetime.fromisoformat(time_filter.split("'")[1])
+        return round((datetime.now(timezone.utc) - start).total_seconds() / 86400)
+
+    def test_days_defaults_to_15(self):
+        mgmt = MagicMock()
+        mgmt.query_events.return_value = falcon_ok([])
+        resp = self.run_handler(mgmt)
+        self.assertEqual((resp.code, resp.body["days"]), (200, 15))
+        self.assertEqual(self.window_days(mgmt), 15)
+
+    def test_days_from_query(self):
+        mgmt = MagicMock()
+        mgmt.query_events.return_value = falcon_ok([])
+        resp = self.run_handler(mgmt, {"days": "30"})
+        self.assertEqual(resp.body["days"], 30)
+        self.assertEqual(self.window_days(mgmt), 30)
+
+    def test_invalid_days_is_rejected(self):
+        for value in ("0", "91", "-5", "abc", "1.5"):
+            mgmt = MagicMock()
+            self.assertEqual(self.run_handler(mgmt, {"days": value}).code, 400, value)
+            mgmt.query_events.assert_not_called()
 
     event = {"domain_name_list": "a.com", "host_name": "h", "timestamp": "2026-01-01T00:00:00Z"}
 

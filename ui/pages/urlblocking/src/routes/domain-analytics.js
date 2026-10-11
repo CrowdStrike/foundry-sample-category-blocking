@@ -92,7 +92,7 @@ function DomainAnalytics() {
 
             <SlCard>
                 <div slot="header">
-                    <h3 className="text-lg font-semibold text-left">Top 20 Most Visited Domains (Last 15 Days)</h3>
+                    <h3 className="text-lg font-semibold text-left">Top 20 Most Visited Domains (Last {analyticsData.days ?? 15} Days)</h3>
                 </div>
                 <DataTable
                     headers={['#', 'Domain', 'Visits']}

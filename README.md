@@ -94,7 +94,7 @@ This application demonstrates advanced usage of Functions, Collections and UI Ex
    - **delete-policy**: Deletes a policy, its rule group and its stored relationships
    - **simulate-policy**: Checks whether a domain would be blocked by any category
    - **check-enforcement** / **health-check**: Verify that policies are enabled and enforcing
-   - **domain-analytics**: Generates domain analytics information
+   - **domain-analytics**: Generates domain analytics information (optional `?days=` look-back window, 1-90, default 15)
    - **import-csv**: Transforms category domain CSV into collections
    - **list-categories**: Lists available categories
    - **search-categories**: Searches for specific categories

@@ -13,12 +13,21 @@ from crowdstrike.foundry.function import Request, Response
 from falconpy import FirewallManagement
 
 from app_core import FUNC, get_client
+from app_utils import query_param
+
+DEFAULT_DAYS = 15  # look-back window when the request does not set ?days=
+MAX_DAYS = 90
 
 @FUNC.handler(method='GET', path='/domain-analytics')
 # pylint: disable-next=too-many-locals,too-many-branches,too-many-statements
-def get_domain_analytics(_request: Request, _: dict, logger: Logger) -> Response:
-    """Generate analytics for domain blocking events."""
+def get_domain_analytics(request: Request, _: dict, logger: Logger) -> Response:
+    """Generate analytics for domain blocking events of the last `days` days (?days=, default 15)."""
     logger.info("Starting /domain-analytics handler")
+    days_param = query_param(request, 'days', str(DEFAULT_DAYS)).strip()
+    if not days_param.isdigit() or not 1 <= int(days_param) <= MAX_DAYS:
+        return Response(code=400, body={"error": f"days must be a whole number between 1 and {MAX_DAYS}"})
+    days = int(days_param)
+
     try:  # pylint: disable=too-many-nested-blocks
         try:
             firewall_mgmt = get_client(FirewallManagement)
@@ -27,9 +36,9 @@ def get_domain_analytics(_request: Request, _: dict, logger: Logger) -> Response
             logger.error(traceback.format_exc())
             return Response(code=500, body={"error": "Falcon client initialization failed"})
 
-        # Fetch events for the last 15 days
+        # Fetch events for the requested window
         end_time = datetime.now(pytz.UTC)
-        start_time = end_time - timedelta(days=15)
+        start_time = end_time - timedelta(days=days)
         time_filter = f"timestamp:>'{start_time.isoformat()}'"
 
         logger.info(f"Fetching events from {start_time} to {end_time}")
@@ -156,6 +165,7 @@ def get_domain_analytics(_request: Request, _: dict, logger: Logger) -> Response
         return Response(
             code=200,
             body={
+                'days': days,
                 'analysis': domain_analysis,
                 'visualization_data': visualization_data,
                 'truncated': truncated,
