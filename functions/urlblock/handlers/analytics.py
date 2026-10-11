@@ -22,7 +22,6 @@ def get_domain_analytics(_request: Request, _: dict, logger: Logger) -> Response
     try:  # pylint: disable=too-many-nested-blocks
         try:
             firewall_mgmt = get_client(FirewallManagement)
-            logger.info("Using cached Falcon client")
         except Exception as e:
             logger.error(f"Failed to initialize Falcon client: {str(e)}")
             logger.error(traceback.format_exc())

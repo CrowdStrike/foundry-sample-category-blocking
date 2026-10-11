@@ -254,6 +254,7 @@ class SimulatePolicyTestCase(HandlerTestCase):
     data = {DOMAIN: {
         "Search": {"category": "Search", "domain": "google.com;*.google.com"},
         "Games": {"category": "Games", "domain": "steam.com"},
+        "Trading": {"category": "Trading", "domain": "tradingview.com;*tradingview.com"},
     }}
 
     def simulate(self, fqdn):
@@ -272,6 +273,12 @@ class SimulatePolicyTestCase(HandlerTestCase):
 
     def test_subdomain_without_wildcard_is_not_blocked(self):
         self.assertFalse(self.simulate("store.steam.com").body["found"])
+
+    def test_legacy_wildcard_without_dot_matches_subdomains(self):
+        resp = self.simulate("www.tradingview.com")
+        self.assertTrue(resp.body["found"])
+        self.assertEqual((resp.body["category"], resp.body["rule"]), ("Trading", "*tradingview.com"))
+        self.assertEqual(self.simulate("tradingview.com").body["rule"], "tradingview.com")  # exact entry wins
 
     def test_unrelated_and_invalid(self):
         self.assertFalse(self.simulate("example.org").body["found"])

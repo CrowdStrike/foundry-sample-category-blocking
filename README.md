@@ -118,8 +118,10 @@ This application demonstrates advanced usage of Functions, Collections and UI Ex
 ## Using the App
 
 ### Creating URL Categories
+A fresh install has no categories.
+
 1. Navigate to the **Custom Categories** page
-2. Use "Import CSV" to import from a CSV file, or manually add categories
+2. Use "Import CSV" to import from a CSV file, or manually add categories. [`sample-categories.csv`](sample-categories.csv) in this repository contains 54 ready-to-use categories in the expected `category,url` format
 3. View and manage your categories from this interface
 
 ### Creating Blocking Rules

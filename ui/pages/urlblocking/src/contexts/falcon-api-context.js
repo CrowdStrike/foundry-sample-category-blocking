@@ -17,6 +17,7 @@ function useFalconApiContext() {
       setCachedCategories(await fetchCategoryNames(falcon));
     } catch (err) {
       console.error("Failed to load categories cache", err);
+      setCachedCategories(prev => prev ?? []);  // stop waiting; pages show no categories
     }
   }, [falcon]);
 

@@ -6241,6 +6241,7 @@ function useFalconApiContext() {
       setCachedCategories(await fetchCategoryNames(falcon));
     } catch (err) {
       console.error("Failed to load categories cache", err);
+      setCachedCategories(prev => prev ?? []); // stop waiting; pages show no categories
     }
   }, [falcon]);
   reactExports.useEffect(() => {
@@ -30725,45 +30726,39 @@ function Home() {
   const [simulatorResult, setSimulatorResult] = reactExports.useState(null);
   const [isSimulating, setIsSimulating] = reactExports.useState(false);
   const [isCreating, setIsCreating] = reactExports.useState(false);
+
+  // Host groups are loaded once per visit
   reactExports.useEffect(() => {
-    const loadData = async () => {
+    const loadHostGroups = async () => {
       try {
         setIsLoading(true);
-        setLoadingCategories(true);
         const hostGroupsBody = await callFunction(falcon, 'GET', '/urlblock');
         if (hostGroupsBody?.host_groups) {
           setHostGroups(hostGroupsBody.host_groups);
         }
-
-        // Use cached categories if available
-        if (cachedCategories && cachedCategories.length > 0) {
-          const categoriesObj = {};
-          cachedCategories.forEach(category => {
-            categoriesObj[category] = '';
-          });
-          setCategories(categoriesObj);
-        } else {
-          // Fallback to fetch
-          const names = await fetchCategoryNames(falcon);
-          const categoriesObj = {};
-          names.forEach(name => {
-            categoriesObj[name] = '';
-          });
-          setCategories(categoriesObj);
-        }
       } catch (error) {
-        console.error('Error loading data:', error);
+        console.error('Error loading host groups:', error);
         setStatus({
           type: 'error',
           message: `Failed to load data: ${error.message}`
         });
       } finally {
         setIsLoading(false);
-        setLoadingCategories(false);
       }
     };
-    if (falcon) loadData();
-  }, [falcon, cachedCategories]);
+    if (falcon) loadHostGroups();
+  }, [falcon]);
+
+  // Categories come from the app-wide cache (null until its first load finishes)
+  reactExports.useEffect(() => {
+    if (cachedCategories === null) return;
+    const categoriesObj = {};
+    cachedCategories.forEach(category => {
+      categoriesObj[category] = '';
+    });
+    setCategories(categoriesObj);
+    setLoadingCategories(false);
+  }, [cachedCategories]);
 
   // Reads the domains of every selected category and stores them as the current preview.
   // Returns the {category: domains} map used to build the rule.
@@ -31357,7 +31352,7 @@ function DomainAnalytics() {
   const {
     falcon,
     isInitialized
-  } = useFalconApiContext();
+  } = reactExports.useContext(FalconApiContext);
   const [analyticsData, setAnalyticsData] = reactExports.useState(null);
   const [loading, setLoading] = reactExports.useState(true);
   const [error, setError] = reactExports.useState(null);
@@ -31477,8 +31472,12 @@ function FirewallRules() {
   // ── Load policies on mount
   reactExports.useEffect(() => {
     loadPolicies();
-    loadAllCategories();
   }, []);
+
+  // Categories come from the app-wide cache (null until its first load finishes)
+  reactExports.useEffect(() => {
+    if (cachedCategories !== null) setAllCategories(cachedCategories);
+  }, [cachedCategories]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Data fetchers
@@ -31497,31 +31496,20 @@ function FirewallRules() {
       setIsLoading(false);
     }
   };
-  const loadAllCategories = async () => {
-    try {
-      if (cachedCategories && cachedCategories.length > 0) {
-        setAllCategories(cachedCategories);
-      } else {
-        setAllCategories(await fetchCategoryNames(falcon));
-      }
-    } catch (err) {
-      console.error('loadAllCategories error:', err);
-    }
-  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // Delete handler
   // ─────────────────────────────────────────────────────────────────────────
 
-  const handleDelete = async (ruleGroupId, policyName, policyId) => {
+  const handleDelete = async (ruleGroupId, policyName) => {
     if (!window.confirm(`Delete policy "${policyName}"? This action cannot be undone.`)) {
       return;
     }
     setDeletingId(ruleGroupId);
     try {
+      // The backend resolves the policy from its own records for this rule group
       await callFunction(falcon, 'POST', '/delete-policy', {
-        rule_group_id: ruleGroupId,
-        policy_id: policyId || ''
+        rule_group_id: ruleGroupId
       });
       await loadPolicies();
     } catch (err) {
@@ -31586,7 +31574,6 @@ function FirewallRules() {
       // 2. Call update-policy
       const result = await callFunction(falcon, 'POST', '/update-policy', {
         ruleGroupId: editPolicy.rule_group_id,
-        policyId: editPolicy.policy_id || '',
         policyName: editPolicy.policy_name,
         hostGroupId: editPolicy.host_group_id,
         hostGroupName: editPolicy.host_group_name,
@@ -31764,7 +31751,7 @@ function FirewallRules() {
     size: "small",
     variant: "danger",
     loading: deletingId === pol.rule_group_id,
-    onClick: () => handleDelete(pol.rule_group_id, pol.policy_name, pol.policy_id)
+    onClick: () => handleDelete(pol.rule_group_id, pol.policy_name)
   }, "\uD83D\uDDD1 Delete"))))))), /*#__PURE__*/React.createElement(dialog_default, {
     ref: dialogRef,
     open: editOpen,

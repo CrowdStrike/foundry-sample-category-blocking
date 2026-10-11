@@ -61,8 +61,10 @@ class PolicyBase(unittest.TestCase):
         self.logger = MagicMock()
         self.mgmt, self.pol = MagicMock(), MagicMock()
         self.store = FakeStorage({REL: {
-            "old1": {"category_name": "Games", "rule_group_id": "rg-old", "host_group_id": "hg1", "policy_name": "P"},
-            "old2": {"category_name": "News", "rule_group_id": "rg-old", "host_group_id": "hg1", "policy_name": "P"},
+            "old1": {"category_name": "Games", "rule_group_id": "rg-old", "host_group_id": "hg1", "policy_name": "P",
+                     "policy_id": "pol-old", "platform": "windows"},
+            "old2": {"category_name": "News", "rule_group_id": "rg-old", "host_group_id": "hg1", "policy_name": "P",
+                     "policy_id": "pol-old", "platform": "windows"},
             "other": {"category_name": "Games", "rule_group_id": "rg-other", "host_group_id": "hg2", "policy_name": "Q"},
         }})
         clients = {"FirewallManagement": self.mgmt, "FirewallPolicies": self.pol, "CustomStorage": self.store}
@@ -90,19 +92,37 @@ class PolicyBase(unittest.TestCase):
         return policies.create_rule(req(dict(self.create_body), context=context), None, self.logger)
 
     update_body = {
-        "ruleGroupId": "rg-old", "policyId": "pol-old", "policyName": "P", "hostGroupId": "hg1",
+        "ruleGroupId": "rg-old", "policyName": "P", "hostGroupId": "hg1",
         "platform": "windows", "categories": {"Games": "steam.com"},
     }
 
     def update(self, body=None):
         return policies.update_policy(req(dict(body or self.update_body)), None, self.logger)
 
+    def make_legacy(self):
+        """Records as written by the previous release: no policy_id and no platform."""
+        for key in ("old1", "old2"):
+            self.rel()[key].pop("policy_id")
+            self.rel()[key].pop("platform")
+
     def record_calls(self):
         order = []
+
+        def perform_action(**k):
+            if k["action_name"] == "disable":
+                order.append(("disable", k["ids"]))
+            return OK
+
+        def rename(**k):
+            resource = k["body"]["resources"][0]  # FalconPy drops `id` from keyword arguments
+            order.append(("rename", resource["id"], resource["name"]))
+            return OK
+
         self.pol.create_policies.side_effect = lambda **k: (order.append(("create", k["name"])),
                                                             falcon_ok([{"id": "pol-new"}]))[1]
+        self.pol.perform_action.side_effect = perform_action
         self.pol.delete_policies.side_effect = lambda **k: (order.append(("delete_pol", k["ids"])), OK)[1]
-        self.pol.update_policies.side_effect = lambda **k: (order.append(("rename", k["id"], k["name"])), OK)[1]
+        self.pol.update_policies.side_effect = rename
         self.mgmt.delete_rule_groups.side_effect = lambda **k: (order.append(("delete_rg", k["ids"])), OK)[1]
         return order
 
@@ -170,12 +190,25 @@ class PolicyUpdateDeleteTestCase(PolicyBase):
         resp = self.update()
 
         self.assertEqual(resp.code, 200)
-        self.assertEqual([step[0] for step in order], ["create", "delete_pol", "rename", "delete_rg"])
+        self.assertEqual([step[0] for step in order], ["create", "disable", "delete_pol", "rename", "delete_rg"])
         self.assertTrue(order[0][1].startswith("P (updating "))  # old policy still holds the name
-        self.assertEqual(order[1:], [("delete_pol", "pol-old"), ("rename", "pol-new", "P"),
-                                     ("delete_rg", ["rg-old"])])
+        self.assertEqual(order[1:], [("disable", "pol-old"), ("delete_pol", "pol-old"),
+                                     ("rename", "pol-new", "P"), ("delete_rg", ["rg-old"])])
         self.assertEqual(set(self.rel()), {"other", "Games_rg-new_hg1"})  # old relations replaced
+        self.assertEqual(self.rel()["Games_rg-new_hg1"]["policy_name"], "P")
         self.assertEqual(resp.body["warnings"], [])
+
+    def test_update_ignores_policy_id_from_request(self):
+        order = self.record_calls()
+        self.assertEqual(self.update(dict(self.update_body, policyId="someone-elses-policy")).code, 200)
+        self.assertIn(("delete_pol", "pol-old"), order)
+        self.assertNotIn(("delete_pol", "someone-elses-policy"), order)
+
+    def test_update_unknown_rule_group_changes_nothing(self):
+        resp = self.update(dict(self.update_body, ruleGroupId="rg-unknown"))
+        self.assertEqual(resp.code, 404)
+        self.pol.create_policies.assert_not_called()
+        self.pol.delete_policies.assert_not_called()
 
     def test_update_create_failure_leaves_old_policy_untouched(self):
         self.pol.create_policies.return_value = {"status_code": 409, "body": {"errors": [{"message": "dup"}]}}
@@ -186,10 +219,20 @@ class PolicyUpdateDeleteTestCase(PolicyBase):
 
     def test_update_attach_failure_rolls_back_only_new_resources(self):
         self.mgmt.update_policy_container.return_value = {"status_code": 500}
-        self.assertEqual(self.update().code, 500)
+        resp = self.update()
+        self.assertEqual(resp.code, 500)
+        self.assertTrue(resp.body["error"].endswith("Rolled back."))
         self.pol.delete_policies.assert_called_once_with(ids="pol-new")
         self.mgmt.delete_rule_groups.assert_called_once_with(ids=["rg-new"])
         self.assertIn("old1", self.rel())
+
+    def test_update_reports_incomplete_rollback(self):
+        self.mgmt.update_policy_container.return_value = {"status_code": 500}
+        self.pol.delete_policies.return_value = {"status_code": 500}
+        resp = self.update()
+        self.assertEqual(resp.code, 500)
+        self.assertNotIn("Rolled back.", resp.body["error"])
+        self.assertIn("Rollback incomplete: policy pol-new", resp.body["error"])
 
     def test_update_rolls_back_new_policy_if_old_cannot_be_deleted(self):
         def delete(**k):
@@ -199,7 +242,7 @@ class PolicyUpdateDeleteTestCase(PolicyBase):
         self.pol.delete_policies.side_effect = delete
         resp = self.update()
         self.assertEqual(resp.code, 500)
-        self.assertIn("rolled back", resp.body["error"])
+        self.assertIn("The update was not applied. Rolled back.", resp.body["error"])
         self.assertEqual([c.kwargs["ids"] for c in self.pol.delete_policies.call_args_list], ["pol-old", "pol-new"])
         self.mgmt.delete_rule_groups.assert_called_once_with(ids=["rg-new"])
         self.pol.update_policies.assert_not_called()
@@ -211,76 +254,110 @@ class PolicyUpdateDeleteTestCase(PolicyBase):
         resp = self.update()
         self.assertEqual(resp.code, 200)
         self.assertEqual(len(resp.body["warnings"]), 2)
-        self.assertIn("Games_rg-new_hg1", self.rel())
+        record = self.rel()["Games_rg-new_hg1"]
+        self.assertTrue(record["policy_name"].startswith("P (updating "))  # matches the real name in Falcon
+        self.assertEqual(record["rule_group_name"], "P_RuleGroup")
 
-    def test_update_legacy_record_resolves_old_policy_by_name(self):
+    def test_update_legacy_record_resolves_policy_and_platform_from_falcon(self):
+        self.make_legacy()
         self.pol.query_combined_policies.return_value = falcon_ok([{"id": "pol-legacy"}])
+        self.pol.get_policies.return_value = falcon_ok([{"id": "pol-legacy", "platform_name": "Windows"}])
         order = self.record_calls()
-        body = {k: v for k, v in self.update_body.items() if k != "policyId"}
 
-        self.assertEqual(self.update(body).code, 200)
+        resp = self.update(dict(self.update_body, platform=""))  # /list-policies returns '' for legacy records
 
+        self.assertEqual(resp.code, 200)
         self.assertEqual(self.pol.query_combined_policies.call_args.kwargs["filter"], "name:'P'")
+        self.pol.get_policies.assert_called_once_with(ids=["pol-legacy"])
+        self.assertEqual(self.pol.create_policies.call_args.kwargs["platform_name"], "Windows")
+        self.assertEqual(self.mgmt.create_rule_group.call_args.kwargs["platform"], "windows")
         self.assertIn(("delete_pol", "pol-legacy"), order)
 
+    def test_update_legacy_without_platform_or_policy_is_rejected(self):
+        self.make_legacy()
+        self.pol.query_combined_policies.return_value = falcon_ok([])
+        resp = self.update(dict(self.update_body, platform=""))
+        self.assertEqual(resp.code, 400)
+        self.pol.create_policies.assert_not_called()
+
     def test_update_without_existing_policy_uses_final_name(self):
+        self.make_legacy()
         self.pol.query_combined_policies.return_value = falcon_ok([])
         order = self.record_calls()
-        body = {k: v for k, v in self.update_body.items() if k != "policyId"}
-        self.assertEqual(self.update(body).code, 200)
+        self.assertEqual(self.update().code, 200)
         self.assertEqual(order[0], ("create", "P"))
         self.pol.delete_policies.assert_not_called()
         self.pol.update_policies.assert_not_called()
 
     def test_update_aborts_if_legacy_lookup_fails(self):
+        self.make_legacy()
         self.pol.query_combined_policies.return_value = {"status_code": 500}
-        body = {k: v for k, v in self.update_body.items() if k != "policyId"}
-        resp = self.update(body)
+        resp = self.update()
         self.assertEqual(resp.code, 500)
         self.assertIn("Nothing was changed", resp.body["error"])
         self.pol.create_policies.assert_not_called()
 
     # --- delete-policy -----------------------------------------------------
-    def test_delete_policy_removes_policy_then_rule_group_then_relations(self):
+    def delete(self, body):
+        return policies.delete_policy(req(body), None, self.logger)
+
+    def test_delete_policy_disables_then_deletes_policy_then_rule_group(self):
         order = self.record_calls()
-        resp = policies.delete_policy(req({"rule_group_id": "rg-old", "policy_id": "pol-old"}), None, self.logger)
+        resp = self.delete({"rule_group_id": "rg-old"})
         self.assertEqual((resp.code, resp.body["relationsDeleted"]), (200, 2))
-        self.assertEqual(order, [("delete_pol", "pol-old"), ("delete_rg", ["rg-old"])])
+        self.assertEqual(order, [("disable", "pol-old"), ("delete_pol", "pol-old"), ("delete_rg", ["rg-old"])])
         self.assertEqual(set(self.rel()), {"other"})
+
+    def test_delete_ignores_policy_id_from_request(self):
+        order = self.record_calls()
+        self.assertEqual(self.delete({"rule_group_id": "rg-old", "policy_id": "someone-elses-policy"}).code, 200)
+        self.assertNotIn(("delete_pol", "someone-elses-policy"), order)
+        self.assertIn(("delete_pol", "pol-old"), order)
+
+    def test_delete_unknown_rule_group_deletes_nothing(self):
+        resp = self.delete({"rule_group_id": "rg-unknown", "policy_id": "someone-elses-policy"})
+        self.assertEqual(resp.code, 404)
+        self.pol.delete_policies.assert_not_called()
+        self.mgmt.delete_rule_groups.assert_not_called()
 
     def test_delete_policy_failure_keeps_rule_group_and_relations(self):
         self.pol.delete_policies.return_value = {"status_code": 403, "body": {"errors": [{"message": "forbidden"}]}}
-        resp = policies.delete_policy(req({"rule_group_id": "rg-old", "policy_id": "pol-old"}), None, self.logger)
+        resp = self.delete({"rule_group_id": "rg-old"})
         self.assertEqual(resp.code, 500)
         self.assertIn("forbidden", resp.body["error"])
         self.mgmt.delete_rule_groups.assert_not_called()
         self.assertIn("old1", self.rel())
 
+    def test_delete_disable_failure_deletes_nothing(self):
+        self.pol.perform_action.return_value = {"status_code": 500}
+        self.assertEqual(self.delete({"rule_group_id": "rg-old"}).code, 500)
+        self.pol.delete_policies.assert_not_called()
+        self.assertIn("old1", self.rel())
+
     def test_delete_rule_group_failure_keeps_relations_for_retry(self):
         self.mgmt.delete_rule_groups.return_value = {"status_code": 500}
-        resp = policies.delete_policy(req({"rule_group_id": "rg-old", "policy_id": "pol-old"}), None, self.logger)
-        self.assertEqual(resp.code, 500)
+        self.assertEqual(self.delete({"rule_group_id": "rg-old"}).code, 500)
         self.assertIn("old1", self.rel())
 
     def test_delete_retry_treats_already_deleted_policy_as_gone(self):
+        self.pol.perform_action.return_value = {"status_code": 404}
         self.pol.delete_policies.return_value = {"status_code": 404}
-        resp = policies.delete_policy(req({"rule_group_id": "rg-old", "policy_id": "pol-old"}), None, self.logger)
+        resp = self.delete({"rule_group_id": "rg-old"})
         self.assertEqual(resp.code, 200)
         self.assertEqual(set(self.rel()), {"other"})
 
     def test_delete_legacy_record_resolves_policy_by_name(self):
+        self.make_legacy()
         self.pol.query_combined_policies.return_value = falcon_ok([{"id": "pol-legacy"}])
-        resp = policies.delete_policy(req({"rule_group_id": "rg-old"}), None, self.logger)
-        self.assertEqual(resp.code, 200)
+        self.assertEqual(self.delete({"rule_group_id": "rg-old"}).code, 200)
         self.pol.delete_policies.assert_called_once_with(ids="pol-legacy")
 
     def test_delete_counts_only_successful_deletes(self):
         self.store.fail_delete.add("old2")
-        resp = policies.delete_policy(req({"rule_group_id": "rg-old", "policy_id": "pol-old"}), None, self.logger)
-        self.assertEqual(resp.body["relationsDeleted"], 1)
+        self.assertEqual(self.delete({"rule_group_id": "rg-old"}).body["relationsDeleted"], 1)
 
     def test_delete_policy_requires_rule_group(self):
-        self.assertEqual(policies.delete_policy(req({}), None, self.logger).code, 400)
+        self.assertEqual(self.delete({}).code, 400)
 
 
 class PolicyQueryTestCase(PolicyBase):
@@ -323,6 +400,38 @@ class PolicyQueryTestCase(PolicyBase):
         resp = policies.health_check(req(), None, self.logger)
         self.assertEqual(self.pol.query_combined_policies.call_args.kwargs["filter"], "name:'o\\'brien\\' OR name:*'")
         self.assertEqual(resp.body["policies"][0]["issues"], ["Policy not found in Falcon"])
+
+    def test_health_check_reports_falcon_errors_instead_of_missing_policies(self):
+        self.store.data[REL] = {"a": {"policy_id": "p1", "policy_name": "A"}}
+        self.pol.get_policies.return_value = {"status_code": 429, "body": {"errors": [{"message": "throttled"}]}}
+        resp = policies.health_check(req(), None, self.logger)
+        self.assertEqual(resp.code, 502)
+        self.assertIn("throttled", resp.body["error"])
+
+        self.pol.get_policies.return_value = falcon_ok([{"id": "p1", "enabled": True}])
+        self.mgmt.get_policy_containers.return_value = {"status_code": 500}
+        self.assertEqual(policies.health_check(req(), None, self.logger).code, 502)
+
+    def test_health_check_batches_policy_ids(self):
+        self.store.data[REL] = {f"r{i:03d}": {"policy_id": f"p{i:03d}", "policy_name": f"N{i}"} for i in range(150)}
+        self.pol.get_policies.side_effect = lambda ids: falcon_ok([{"id": i, "enabled": True, "groups": [1]} for i in ids])
+        self.mgmt.get_policy_containers.side_effect = lambda ids: falcon_ok(
+            [{"policy_id": i, "enforce": True, "rule_group_ids": ["rg"]} for i in ids])
+
+        resp = policies.health_check(req(), None, self.logger)
+
+        self.assertEqual([len(c.kwargs["ids"]) for c in self.pol.get_policies.call_args_list], [100, 50])
+        self.assertEqual(self.mgmt.get_policy_containers.call_count, 2)
+        self.assertEqual(resp.body["healthy_count"], 150)
+
+    def test_health_check_keeps_found_policies_on_partial_404(self):
+        self.store.data[REL] = {"a": {"policy_id": "p1", "policy_name": "A"}, "b": {"policy_id": "gone", "policy_name": "B"}}
+        self.pol.get_policies.return_value = {"status_code": 404, "body": {"resources": [
+            {"id": "p1", "enabled": True, "groups": [1]}]}}
+        self.mgmt.get_policy_containers.return_value = falcon_ok(
+            [{"policy_id": "p1", "enforce": True, "rule_group_ids": ["r"]}])
+        resp = policies.health_check(req(), None, self.logger)
+        self.assertEqual((resp.code, resp.body["healthy_count"], resp.body["issues_count"]), (200, 1, 1))
 
     def test_check_enforcement_reads_policy_id_from_query(self):
         self.mgmt.get_policy_containers.return_value = falcon_ok([{"policy_id": "p1", "enforce": True}])

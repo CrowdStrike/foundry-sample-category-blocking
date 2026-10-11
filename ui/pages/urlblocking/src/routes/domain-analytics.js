@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useFalconApiContext } from '../contexts/falcon-api-context';
+import React, { useState, useEffect, useContext } from 'react';
+import { FalconApiContext } from '../contexts/falcon-api-context';
 import { SlSpinner, SlCard, SlAlert } from '@shoelace-style/shoelace/dist/react';
 import { callFunction } from '../utils/api.js';
 
@@ -34,7 +34,7 @@ function DataTable({ headers, rows }) {
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');
 
 function DomainAnalytics() {
-    const { falcon, isInitialized } = useFalconApiContext();
+    const { falcon, isInitialized } = useContext(FalconApiContext);
     const [analyticsData, setAnalyticsData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);

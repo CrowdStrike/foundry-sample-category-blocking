@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { FalconApiContext } from '../contexts/falcon-api-context';
 import { categoryKey } from '../utils/keys.js';
-import { fetchCategoryNames } from '../utils/categories.js';
 import { callFunction } from '../utils/api.js';
 import {
   SlButton,
@@ -71,8 +70,12 @@ function FirewallRules() {
   // ── Load policies on mount
   useEffect(() => {
     loadPolicies();
-    loadAllCategories();
   }, []);
+
+  // Categories come from the app-wide cache (null until its first load finishes)
+  useEffect(() => {
+    if (cachedCategories !== null) setAllCategories(cachedCategories);
+  }, [cachedCategories]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Data fetchers
@@ -93,29 +96,18 @@ function FirewallRules() {
     }
   };
 
-  const loadAllCategories = async () => {
-    try {
-      if (cachedCategories && cachedCategories.length > 0) {
-        setAllCategories(cachedCategories);
-      } else {
-        setAllCategories(await fetchCategoryNames(falcon));
-      }
-    } catch (err) {
-      console.error('loadAllCategories error:', err);
-    }
-  };
-
   // ─────────────────────────────────────────────────────────────────────────
   // Delete handler
   // ─────────────────────────────────────────────────────────────────────────
 
-  const handleDelete = async (ruleGroupId, policyName, policyId) => {
+  const handleDelete = async (ruleGroupId, policyName) => {
     if (!window.confirm(`Delete policy "${policyName}"? This action cannot be undone.`)) {
       return;
     }
     setDeletingId(ruleGroupId);
     try {
-      await callFunction(falcon, 'POST', '/delete-policy', { rule_group_id: ruleGroupId, policy_id: policyId || '' });
+      // The backend resolves the policy from its own records for this rule group
+      await callFunction(falcon, 'POST', '/delete-policy', { rule_group_id: ruleGroupId });
       await loadPolicies();
     } catch (err) {
       console.error('handleDelete error:', err);
@@ -180,7 +172,6 @@ function FirewallRules() {
       // 2. Call update-policy
       const result = await callFunction(falcon, 'POST', '/update-policy', {
         ruleGroupId: editPolicy.rule_group_id,
-        policyId:    editPolicy.policy_id || '',
         policyName:  editPolicy.policy_name,
         hostGroupId: editPolicy.host_group_id,
         hostGroupName: editPolicy.host_group_name,
@@ -363,7 +354,7 @@ function FirewallRules() {
                       size="small"
                       variant="danger"
                       loading={deletingId === pol.rule_group_id}
-                      onClick={() => handleDelete(pol.rule_group_id, pol.policy_name, pol.policy_id)}
+                      onClick={() => handleDelete(pol.rule_group_id, pol.policy_name)}
                     >
                       🗑 Delete
                     </SlButton>

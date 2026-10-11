@@ -28,7 +28,9 @@ This sample is designed to show how to use URL Filtering in Falcon Foundry. It c
 
 ## Application Setup
 
-After installing this app, go to the Custom Categories page and import your URL categories from a CSV file (`category,url`, one row per domain), or add categories manually.
+A fresh install has no categories. Go to the Custom Categories page and import a CSV file (`category,url`; the `url` column holds one domain or a `;`-separated list), or add categories manually.
+
+To get started quickly, import [`sample-categories.csv`](https://github.com/CrowdStrike/foundry-sample-category-blocking/blob/main/sample-categories.csv) from the GitHub repository. It contains 54 ready-to-use categories (Games, Social Media, Warez, ...).
 
 ## Usage
 

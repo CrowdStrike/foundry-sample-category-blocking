@@ -1,7 +1,6 @@
 import React, { useContext, useState, useEffect } from "react";
 import { FalconApiContext } from "../contexts/falcon-api-context";
 import { categoryKey } from "../utils/keys.js";
-import { fetchCategoryNames } from "../utils/categories.js";
 import { callFunction } from "../utils/api.js";
 import { Link } from '../components/link';
 import { SlSpinner, SlSelect, SlOption, SlButton, SlCheckbox, SlTextarea, SlAlert } from '@shoelace-style/shoelace/dist/react';
@@ -45,44 +44,34 @@ function Home() {
   const [isSimulating, setIsSimulating] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
+  // Host groups are loaded once per visit
   useEffect(() => {
-    const loadData = async () => {
+    const loadHostGroups = async () => {
       try {
         setIsLoading(true);
-        setLoadingCategories(true);
-
         const hostGroupsBody = await callFunction(falcon, 'GET', '/urlblock');
-
         if (hostGroupsBody?.host_groups) {
           setHostGroups(hostGroupsBody.host_groups);
         }
-
-        // Use cached categories if available
-        if (cachedCategories && cachedCategories.length > 0) {
-          const categoriesObj = {};
-          cachedCategories.forEach(category => {
-            categoriesObj[category] = '';
-          });
-          setCategories(categoriesObj);
-        } else {
-          // Fallback to fetch
-          const names = await fetchCategoryNames(falcon);
-          const categoriesObj = {};
-          names.forEach(name => { categoriesObj[name] = ''; });
-          setCategories(categoriesObj);
-        }
-
       } catch (error) {
-        console.error('Error loading data:', error);
+        console.error('Error loading host groups:', error);
         setStatus({ type: 'error', message: `Failed to load data: ${error.message}` });
       } finally {
         setIsLoading(false);
-        setLoadingCategories(false);
       }
     };
 
-    if (falcon) loadData();
-  }, [falcon, cachedCategories]);
+    if (falcon) loadHostGroups();
+  }, [falcon]);
+
+  // Categories come from the app-wide cache (null until its first load finishes)
+  useEffect(() => {
+    if (cachedCategories === null) return;
+    const categoriesObj = {};
+    cachedCategories.forEach(category => { categoriesObj[category] = ''; });
+    setCategories(categoriesObj);
+    setLoadingCategories(false);
+  }, [cachedCategories]);
 
   // Reads the domains of every selected category and stores them as the current preview.
   // Returns the {category: domains} map used to build the rule.
