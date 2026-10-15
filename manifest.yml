@@ -20,6 +20,10 @@ ignored:
     - e2e/.+
     - functions/.*/venv
     - functions/.*/venv/.+
+    - functions/.*/__pycache__
+    - functions/.*/__pycache__/.+
+    - functions/.*/.*\.pyc
+    - functions/.*/.*test.*\.py
 ui:
     homepage: pages.urlblocking
     extensions: []
@@ -79,9 +83,11 @@ functions:
       description: react block
       path: functions/urlblock
       environment_variables: {}
+      max_exec_duration_seconds: 300
+      max_exec_memory_mb: 512
       handlers:
         - name: urlblock
-          description: react block
+          description: List available CrowdStrike host groups
           method: GET
           api_path: /urlblock
           payload_type: ""
@@ -89,17 +95,8 @@ functions:
           response_schema: null
           workflow_integration: null
           permissions: []
-        - name: categories
-          description: get categories
-          method: GET
-          api_path: /categories
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
         - name: create-rule
-          description: Create blocking rule
+          description: Create firewall policy with rule group and FQDN blocking rules
           method: POST
           api_path: /create-rule
           payload_type: ""
@@ -108,7 +105,7 @@ functions:
           workflow_integration: null
           permissions: []
         - name: domain-analytics
-          description: Create blocking rule
+          description: Get domain analytics - top blocked domains, unique IPs and hosts
           method: GET
           api_path: /domain-analytics
           payload_type: ""
@@ -117,7 +114,7 @@ functions:
           workflow_integration: null
           permissions: []
         - name: import_csv_handler
-          description: Import CSV data into Collections
+          description: Bulk import categories and domains from CSV content
           method: POST
           api_path: /import-csv
           payload_type: ""
@@ -126,7 +123,7 @@ functions:
           workflow_integration: null
           permissions: []
         - name: list-categories
-          description: Import CSV data into Collections
+          description: List all categories with their domains
           method: GET
           api_path: /list-categories
           payload_type: ""
@@ -135,7 +132,7 @@ functions:
           workflow_integration: null
           permissions: []
         - name: search-categories
-          description: Import CSV data into Collections
+          description: Search for a specific category by name
           method: GET
           api_path: /search-categories
           payload_type: ""
@@ -144,7 +141,7 @@ functions:
           workflow_integration: null
           permissions: []
         - name: manage-categories
-          description: Import CSV data into Collections
+          description: Create or update a URL category in Custom Storage
           method: POST
           api_path: /manage-category
           payload_type: ""
@@ -152,33 +149,70 @@ functions:
           response_schema: null
           workflow_integration: null
           permissions: []
-        - name: manage-relationship
-          description: Import CSV data into Collections
-          method: POST
-          api_path: /manage-relationship
-          payload_type: ""
-          request_schema: null
-          response_schema: null
-          workflow_integration: null
-          permissions: []
-        - name: get-relationship
-          description: Import CSV data into Collections
+        - name: simulate-policy
+          description: Check if a given FQDN would be blocked by any category
           method: GET
-          api_path: /get-relationship
+          api_path: /simulate-policy
           payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
           permissions: []
-        - name: update-rules
-          description: Update rules by creating new rule with updated domains
+        - name: list-policies
+          description: List all policies created by the app with their categories
+          method: GET
+          api_path: /list-policies
+          payload_type: ""
+          request_schema: null
+          response_schema: null
+          workflow_integration: null
+          permissions: []
+        - name: delete-policy
+          description: Delete a firewall policy, its rule group, and associated relationships
           method: POST
-          api_path: /update-rules
+          api_path: /delete-policy
           payload_type: ""
           request_schema: null
           response_schema: null
           workflow_integration: null
           permissions: []
+        - name: update-policy
+          description: Update an existing policy by recreating its rule group and rules
+          method: POST
+          api_path: /update-policy
+          payload_type: ""
+          request_schema: null
+          response_schema: null
+          workflow_integration: null
+          permissions: []
+        - name: healthz
+          description: Health check endpoint - confirms function is running
+          method: GET
+          api_path: /healthz
+          payload_type: ""
+          request_schema: null
+          response_schema: null
+          workflow_integration: null
+          permissions: []
+        - name: check-enforcement
+          description: Check enforcement status of a specific firewall policy
+          method: GET
+          api_path: /check-enforcement
+          payload_type: ""
+          request_schema: null
+          response_schema: null
+          workflow_integration: null
+          permissions: []
+        - name: health-check
+          description: Validate all policies - enforcement, enabled, host groups and rule groups
+          method: GET
+          api_path: /health-check
+          payload_type: ""
+          request_schema: null
+          response_schema: null
+          workflow_integration: null
+          permissions: []
+
       language: python
 workflows: []
 parsers: []
@@ -188,3 +222,4 @@ lookup_files: []
 docs:
     path: app_docs
     entrypoint: README.md
+

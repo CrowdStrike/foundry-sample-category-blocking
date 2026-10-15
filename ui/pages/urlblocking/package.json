@@ -10,11 +10,8 @@
     "@crowdstrike/foundry-js": "0.22.0",
     "@crowdstrike/tailwind-toucan-base": "5.0.0",
     "@shoelace-style/shoelace": "2.20.1",
-    "d3": "7.9.0",
-    "plotly.js": "3.1.0",
     "react": "19.2.1",
     "react-dom": "19.2.1",
-    "react-plotly.js": "2.6.0",
     "react-router-dom": "7.18.2"
   },
   "devDependencies": {

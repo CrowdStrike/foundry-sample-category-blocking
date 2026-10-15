@@ -11,7 +11,6 @@ The Category Blocking app allows you to:
 - Create and manage custom categories of domains for blocking
 - Deploy firewall rules to block categories of domains across host groups
 - Import URL categories from CSV files
-- Visualize relationships between categories, rule groups, and host groups
 - Generate analytics on domain blocking patterns
 
 ## Prerequisites
@@ -89,26 +88,27 @@ This application demonstrates advanced usage of Functions, Collections and UI Ex
 
 1. **Python functions with multiple handlers:**
    - **urlblock**: Fetches host groups information
-   - **categories**: Retrieves categories from collections
-   - **create-rule**: Creates firewall management blocking rules
-   - **domain-analytics**: Generates domain analytics information
+   - **create-rule**: Creates a firewall policy and rule group that block the selected categories
+   - **list-policies**: Lists the policies created by the app
+   - **update-policy**: Replaces a policy's categories and whitelist
+   - **delete-policy**: Deletes a policy, its rule group and its stored relationships
+   - **simulate-policy**: Checks whether a domain would be blocked by any category
+   - **check-enforcement** / **health-check**: Verify that policies are enabled and enforcing
+   - **domain-analytics**: Generates domain analytics information (optional `?days=` look-back window, 1-90, default 15)
    - **import-csv**: Transforms category domain CSV into collections
    - **list-categories**: Lists available categories
    - **search-categories**: Searches for specific categories
-   - **manage-categories**: Creates or updates categories
-   - **manage-relationship**: Creates relationships between categories, rule groups, and hosts
-   - **get-relationship**: Retrieves relationship information
-   - **update-rules**: Updates existing rules with new domains
+   - **manage-category**: Creates or updates categories
 
 2. **Collections for data storage:**
    - **domain**: Stores URLs and category mappings
    - **relationship**: Stores relationship information about host groups, rule groups, and categories
 
 3. **UI Pages with React components:**
-   - **Home**: Main interface for creating firewall rules
-   - **FirewallRules**: Management of domain categories
-   - **DomainAnalytics**: Visualization of domain data
-   - **Relationship**: Visualization of relationships between categories, rule groups, and host groups
+   - **Category Blocking Policy**: Main interface for creating firewall rules
+   - **Custom Categories**: Management of domain categories
+   - **Domain Analytics**: Visualization of domain data
+   - **Firewall Rules**: Management of the policies created by the app
 
 ### Directory structure
 - **collections**: Schemas for domain and relationship collections
@@ -118,26 +118,28 @@ This application demonstrates advanced usage of Functions, Collections and UI Ex
 ## Using the App
 
 ### Creating URL Categories
-1. Navigate to the **FirewallRules** page
-2. Click "Import Categories" to import from a CSV file, or manually add categories
+A fresh install has no categories.
+
+1. Navigate to the **Custom Categories** page
+2. Use "Import CSV" to import from a CSV file, or manually add categories. [`sample-categories.csv`](sample-categories.csv) in this repository contains 54 ready-to-use categories in the expected `category,url` format
 3. View and manage your categories from this interface
 
 ### Creating Blocking Rules
-1. Navigate to the **Home** page
+1. Navigate to the **Category Blocking Policy** page
 2. Enter a policy name and select a host group
 3. Select the categories you want to block
-4. Click "Preview domains" to see what will be blocked
+4. Click "Preview Domains" to see what will be blocked
 5. Click "Create blocking rule" to deploy the rule
 
 ### Viewing Analytics
-1. Navigate to the **DomainAnalytics** page
-2. View charts and statistics about blocked domains
+1. Navigate to the **Domain Analytics** page
+2. View tables and statistics about blocked domains
 3. Analyze patterns and effectiveness of your blocking rules
 
-### Visualizing Relationships
-1. Navigate to the **Relationship** page
-2. Explore the connections between categories, rule groups, and host groups
-3. Understand how your blocking rules are structured
+### Managing Policies
+1. Navigate to the **Firewall Rules** page
+2. Edit a policy's categories and whitelist, or delete it
+3. The replacement policy is created before the old one is removed, so hosts stay protected during an update
 
 ## Foundry resources
 

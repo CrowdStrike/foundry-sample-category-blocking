@@ -1,285 +1,293 @@
-"""Test module for the urlblock function handlers.
+"""Tests for storage helpers, category/CSV handlers and the policy simulator.
 
-Validates that handlers use versioned Custom Storage methods (PutObjectByVersion,
-GetVersionedObject) instead of unversioned methods (PutObject, GetObject).
+Requests use the real Foundry request model (see conftest.py) and Custom Storage is the
+in-memory FakeStorage, which answers with FalconPy's real response shapes.
 """
+# pylint: disable=missing-class-docstring,missing-function-docstring,invalid-name
 
-import importlib
-import io
-import json
+import threading
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from crowdstrike.foundry.function import Request
+from crowdstrike.foundry.function import Request, RequestParams
 
-import main
+import main  # noqa: F401  # pylint: disable=unused-import  # registers all handlers
+from app_utils import (
+    list_object_keys, read_all_objects, parse_object_response, query_param, StorageError,
+    _get_username, resolve_creator,
+)
+from conftest import FakeStorage, falcon_response
+from handlers import categories, policies
 
-
-def mock_handler(*_args, **_kwargs):
-    """Mock handler decorator for testing."""
-
-    def identity(func):
-        return func
-
-    return identity
-
-
-class ManageCategoryTestCase(unittest.TestCase):
-    """Tests for the POST /manage-category handler."""
-
-    def setUp(self):
-        """Set up test fixtures before each test method."""
-        patcher = patch("crowdstrike.foundry.function.Function.handler", new=mock_handler)
-        self.addCleanup(patcher.stop)
-        self.handler_patch = patcher.start()
-
-        importlib.reload(main)
-
-    @patch('main.CustomStorage')
-    def test_manage_category_success(self, mock_custom_storage_class):
-        """Test successful category creation uses PutObjectByVersion."""
-        mock_api = MagicMock()
-        mock_custom_storage_class.return_value = mock_api
-        mock_api.PutObjectByVersion.return_value = {
-            "status_code": 200,
-            "body": {"success": True}
-        }
-
-        request = Request()
-        request.body = {
-            "categoryName": "Games",
-            "urls": "steam.com,epicgames.com"
-        }
-
-        logger = MagicMock()
-        response = main.manage_category(request, None, logger)
-
-        self.assertEqual(response.code, 200)
-        self.assertTrue(response.body["success"])
-        self.assertEqual(response.body["categoryName"], "Games")
-
-        # Verify VERSIONED method is called
-        mock_api.PutObjectByVersion.assert_called_once()
-        put_call = mock_api.PutObjectByVersion.call_args
-        self.assertEqual(put_call[1]["collection_version"], "v2.0")
-        self.assertEqual(put_call[1]["collection_name"], "domain")
-        self.assertEqual(put_call[1]["object_key"], "Games")
-        self.assertIn("category", put_call[1]["body"])
-        self.assertEqual(put_call[1]["body"]["category"], "Games")
-
-        # Verify UNVERSIONED method is NOT called
-        mock_api.PutObject.assert_not_called()
-
-    def test_manage_category_missing_name(self):
-        """Test that missing category name returns 400."""
-        request = Request()
-        request.body = {
-            "categoryName": "",
-            "urls": "steam.com"
-        }
-
-        logger = MagicMock()
-        response = main.manage_category(request, None, logger)
-
-        self.assertEqual(response.code, 400)
-        self.assertEqual(response.body["error"], "Category name is required")
-
-    def test_manage_category_missing_urls(self):
-        """Test that missing URLs returns 400."""
-        request = Request()
-        request.body = {
-            "categoryName": "Games",
-            "urls": ""
-        }
-
-        logger = MagicMock()
-        response = main.manage_category(request, None, logger)
-
-        self.assertEqual(response.code, 400)
-        self.assertEqual(response.body["error"], "URLs are required")
-
-    @patch('main.CustomStorage')
-    def test_manage_category_api_error(self, mock_custom_storage_class):
-        """Test that a non-200 API response returns 500."""
-        mock_api = MagicMock()
-        mock_custom_storage_class.return_value = mock_api
-        mock_api.PutObjectByVersion.return_value = {
-            "status_code": 500,
-            "body": {"message": "Internal server error"}
-        }
-
-        request = Request()
-        request.body = {
-            "categoryName": "Games",
-            "urls": "steam.com"
-        }
-
-        logger = MagicMock()
-        response = main.manage_category(request, None, logger)
-
-        self.assertEqual(response.code, 500)
-        self.assertIn("error", response.body)
+DOMAIN = ("domain", "v2.0")
 
 
-class SearchCategoriesTestCase(unittest.TestCase):
-    """Tests for the GET /search-categories handler."""
+def req(body=None, query=None, context=None):
+    return Request(body=body or {}, params=RequestParams(query={k: [v] for k, v in (query or {}).items()}),
+                   context=context or {})
+
+
+class HandlerTestCase(unittest.TestCase):
+    module = None
+    data = {}
 
     def setUp(self):
-        """Set up test fixtures before each test method."""
-        patcher = patch("crowdstrike.foundry.function.Function.handler", new=mock_handler)
-        self.addCleanup(patcher.stop)
-        self.handler_patch = patcher.start()
+        self.logger = MagicMock()
+        self.store = FakeStorage(self.data)
+        p = patch.object(self.module, "get_client", return_value=self.store)
+        p.start()
+        self.addCleanup(p.stop)
 
-        importlib.reload(main)
 
-    @patch('main.CustomStorage')
-    def test_search_categories_success(self, mock_custom_storage_class):
-        """Test successful search uses GetVersionedObject."""
-        mock_api = MagicMock()
-        mock_custom_storage_class.return_value = mock_api
-        mock_api.GetVersionedObject.return_value = json.dumps({
-            "resources": [{"category": "Games", "domain": "steam.com"}]
-        }).encode("utf-8")
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
+class QueryParamTestCase(unittest.TestCase):
+    def test_reads_first_value_of_sdk_query_lists(self):
+        self.assertEqual(query_param(req(query={"fqdn": "a.com"}), "fqdn"), "a.com")
+
+    def test_missing_param_returns_default(self):
+        self.assertEqual(query_param(req(), "fqdn", "x"), "x")
+
+    def test_accepts_dict_params(self):
         request = Request()
-        request.body = {"category": "Games", "limit": 10}
-
-        response = main.search_categories(request)
-
-        self.assertEqual(response.code, 200)
-
-        # Verify VERSIONED method is called
-        mock_api.GetVersionedObject.assert_called_once()
-        get_call = mock_api.GetVersionedObject.call_args
-        self.assertEqual(get_call[1]["collection_version"], "v2.0")
-        self.assertEqual(get_call[1]["collection_name"], "domain")
-
-        # Verify UNVERSIONED method is NOT called
-        mock_api.GetObject.assert_not_called()
-
-    @patch('main.CustomStorage')
-    def test_search_categories_error(self, mock_custom_storage_class):
-        """Test search error handling returns 500."""
-        mock_custom_storage_class.side_effect = Exception("Connection failed")
-
-        request = Request()
-        request.body = {}
-
-        response = main.search_categories(request)
-
-        self.assertEqual(response.code, 500)
-        self.assertEqual(len(response.errors), 1)
-        self.assertIn("Connection failed", response.errors[0].message)
+        request.params = {"query": {"limit": ["5"]}}
+        self.assertEqual(query_param(request, "limit"), "5")
 
 
-class ProcessCsvRecordsTestCase(unittest.TestCase):
-    """Tests for the process_csv_records helper function."""
+class UsernameTestCase(unittest.TestCase):
+    def test_reads_user_from_request_context(self):
+        self.assertEqual(_get_username(req(context={"user": {"username": "ana"}})), "ana")
+        self.assertEqual(_get_username(req(context={"user_id": "u-1"})), "u-1")
 
-    def setUp(self):
-        """Set up test fixtures before each test method."""
-        patcher = patch("crowdstrike.foundry.function.Function.handler", new=mock_handler)
-        self.addCleanup(patcher.stop)
-        self.handler_patch = patcher.start()
+    def test_unknown_without_context(self):
+        self.assertEqual(_get_username(req()), "unknown")
 
-        importlib.reload(main)
-
-    @patch('builtins.open')
-    def test_process_csv_records_uses_versioned_method(self, mock_open):
-        """Test that process_csv_records calls PutObjectByVersion."""
-        csv_content = "category,urls\nGames,steam.com\n"
-        mock_open.return_value.__enter__ = lambda s: io.StringIO(csv_content)
-        mock_open.return_value.__exit__ = MagicMock(return_value=False)
-
-        mock_api = MagicMock()
-
-        results = main.process_csv_records(
-            csv_path="/fake/path.csv",
-            custom_storage=mock_api,
-            collection_name="domain",
-            collection_version="v2.0"
-        )
-
-        # Verify VERSIONED method is called
-        mock_api.PutObjectByVersion.assert_called_once()
-        put_call = mock_api.PutObjectByVersion.call_args
-        self.assertEqual(put_call[1]["collection_version"], "v2.0")
-        self.assertEqual(put_call[1]["collection_name"], "domain")
-
-        # Verify UNVERSIONED method is NOT called
-        mock_api.PutObject.assert_not_called()
-
-        self.assertEqual(results["success_count"], 1)
+    def test_resolve_creator_order(self):
+        self.assertEqual(resolve_creator(req({"username": "x"}, context={"user_id": "u"})), ("u", "context"))
+        self.assertEqual(resolve_creator(req({"username": " ana@x.com "})), ("ana@x.com", "ui"))
+        self.assertEqual(resolve_creator(req({"username": "unknown"})), ("unknown", "none"))
+        self.assertEqual(resolve_creator(req()), ("unknown", "none"))
 
 
-class ManageRelationshipTestCase(unittest.TestCase):
-    """Tests for the POST /manage-relationship handler."""
+class StorageHelpersTestCase(unittest.TestCase):
+    def test_list_keys_pages_with_inclusive_start_cursor(self):
+        store = FakeStorage({DOMAIN: {f"k{i:02d}": {} for i in range(5)}})
+        result = list_object_keys(store, *DOMAIN, page_size=2)
+        self.assertEqual(result["keys"], ["k00", "k01", "k02", "k03", "k04"])
+        self.assertFalse(result["pagination"]["truncated"])
 
-    def setUp(self):
-        """Set up test fixtures before each test method."""
-        patcher = patch("crowdstrike.foundry.function.Function.handler", new=mock_handler)
-        self.addCleanup(patcher.stop)
-        self.handler_patch = patcher.start()
+    def test_list_keys_truncated_at_max_pages(self):
+        store = FakeStorage({DOMAIN: {f"k{i}": {} for i in range(10)}})
+        result = list_object_keys(store, *DOMAIN, page_size=2, max_pages=2)
+        self.assertTrue(result["pagination"]["truncated"])
+        self.assertEqual(len(result["keys"]), 3)  # 2 + 1 new (cursor key repeated)
 
-        importlib.reload(main)
+    def test_list_error(self):
+        store = FakeStorage()
+        store.list_status = 403
+        self.assertIn("error", list_object_keys(store, *DOMAIN))
 
-    @patch('main.CustomStorage')
-    def test_manage_relationship_success(self, mock_custom_storage_class):
-        """Test successful relationship creation uses PutObjectByVersion with v5.0."""
-        mock_api = MagicMock()
-        mock_custom_storage_class.return_value = mock_api
-        mock_api.PutObjectByVersion.return_value = {
-            "status_code": 200,
-            "body": {"success": True}
-        }
+    def test_read_all_objects_returns_full_records_with_key(self):
+        for json_objects in (False, True):
+            store = FakeStorage({DOMAIN: {"Games": {"category": "Games", "domain": "a.com"}}},
+                                json_objects=json_objects)
+            result = read_all_objects(store, *DOMAIN)
+            self.assertEqual(result["resources"], [{"category": "Games", "domain": "a.com", "_key": "Games"}])
 
-        request = Request()
-        request.body = {
-            "category_name": "Games",
-            "rule_group_id": "rg-123",
-            "rule_group_name": "Games_RuleGroup",
-            "host_group_id": "hg-456",
-            "host_group_name": "Test Hosts",
-            "policy_name": "Games_Policy",
-            "created_at": "2026-01-01T00:00:00Z",
-            "created_by": "test-user"
-        }
+    def test_read_all_counts_unreadable_objects(self):
+        store = FakeStorage({DOMAIN: {"a": {"x": 1}, "b": {"x": 2}}})
+        store.fail_get.add("b")
+        result = read_all_objects(store, *DOMAIN)
+        self.assertEqual(len(result["resources"]), 1)
+        self.assertEqual(result["failed"], 1)
 
-        logger = MagicMock()
-        response = main.manage_relationship(request, None, logger)
+    def test_parse_object_response_shapes(self):
+        self.assertEqual(parse_object_response(b'{"a": 1}'), {"a": 1})
+        self.assertEqual(parse_object_response(falcon_response(body={"a": 1})), {"a": 1})
+        self.assertIsNone(parse_object_response(falcon_response(404)))
+        with self.assertRaises(StorageError):
+            parse_object_response(falcon_response(500))
 
-        self.assertEqual(response.code, 200)
-        self.assertTrue(response.body["success"])
-        self.assertEqual(response.body["relationshipId"], "Games_rg-123_hg-456")
 
-        # Verify VERSIONED method is called with v5.0
-        mock_api.PutObjectByVersion.assert_called_once()
-        put_call = mock_api.PutObjectByVersion.call_args
-        self.assertEqual(put_call[1]["collection_version"], "v5.0")
-        self.assertEqual(put_call[1]["collection_name"], "relationship")
-        self.assertEqual(put_call[1]["object_key"], "Games_rg-123_hg-456")
-        self.assertEqual(put_call[1]["body"]["category_name"], "Games")
-        self.assertEqual(put_call[1]["body"]["rule_group_id"], "rg-123")
-        self.assertEqual(put_call[1]["body"]["host_group_id"], "hg-456")
+# ---------------------------------------------------------------------------
+# Categories
+# ---------------------------------------------------------------------------
 
-        # Verify UNVERSIONED method is NOT called
-        mock_api.PutObject.assert_not_called()
+class ManageCategoryTestCase(HandlerTestCase):
+    module = categories
 
-    def test_manage_relationship_missing_fields(self):
-        """Test that missing required fields returns 400."""
-        request = Request()
-        request.body = {
-            "category_name": "Games",
-            "rule_group_id": "",
-            "host_group_id": ""
-        }
+    def test_success_writes_versioned_object(self):
+        resp = categories.manage_category(req({"categoryName": "Games", "urls": "steam.com,epicgames.com"}), None, self.logger)
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(resp.body["urlCount"], 4)
+        obj = self.store.objects(*DOMAIN)["Games"]
+        self.assertEqual(obj["domain"], "steam.com;*.steam.com;epicgames.com;*.epicgames.com")
 
-        logger = MagicMock()
-        response = main.manage_relationship(request, None, logger)
+    def test_missing_name_and_urls(self):
+        self.assertEqual(categories.manage_category(req({"categoryName": "", "urls": "a.com"}), None, self.logger).code, 400)
+        self.assertEqual(categories.manage_category(req({"categoryName": "G", "urls": ""}), None, self.logger).code, 400)
 
-        self.assertEqual(response.code, 400)
-        self.assertIn("missing_fields", response.body)
-        self.assertIn("rule_group_id", response.body["missing_fields"])
-        self.assertIn("host_group_id", response.body["missing_fields"])
+    def test_all_invalid_urls(self):
+        self.assertEqual(categories.manage_category(req({"categoryName": "X", "urls": "nope"}), None, self.logger).code, 400)
+
+    def test_put_error_returns_500(self):
+        self.store.fail_put.add("Games")
+        resp = categories.manage_category(req({"categoryName": "Games", "urls": "a.com"}), None, self.logger)
+        self.assertEqual(resp.code, 500)
+
+
+class CategoryCaseConflictTestCase(HandlerTestCase):
+    module = categories
+    data = {DOMAIN: {"AI_Apps": {"category": "AI Apps", "domain": "a.com"}}}
+
+    def test_rejects_key_differing_only_by_case(self):
+        resp = categories.manage_category(req({"categoryName": "ai apps", "urls": "b.com"}), None, self.logger)
+        self.assertEqual(resp.code, 409)
+        self.assertIn("AI_Apps", resp.body["error"])
+        self.assertNotIn("ai_apps", self.store.objects(*DOMAIN))
+
+    def test_updates_existing_exact_key(self):
+        resp = categories.manage_category(req({"categoryName": "AI Apps", "urls": "b.com"}), None, self.logger)
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(self.store.objects(*DOMAIN)["AI_Apps"]["domain"], "b.com;*.b.com")
+
+
+class ListCategoriesTestCase(HandlerTestCase):
+    module = categories
+    data = {DOMAIN: {
+        "Games": {"category": "Games", "domain": "steam.com"},
+        "AI_Apps": {"category": "AI Apps", "domain": "openai.com"},
+    }}
+
+    def test_returns_names_domains_and_pagination(self):
+        resp = categories.list_categories(req(), None, self.logger)
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(resp.body["categories"], ["AI Apps", "Games"])
+        self.assertEqual(resp.body["total_items"], 2)
+        self.assertEqual(resp.body["pagination"]["returned"], 2)
+        self.assertFalse(resp.body["pagination"]["truncated"])
+
+    def test_limit_query_param_is_used_and_capped(self):
+        resp = categories.list_categories(req(query={"limit": "9999"}), None, self.logger)
+        self.assertEqual(resp.body["pagination"]["page_size"], 500)
+        resp = categories.list_categories(req(query={"limit": "1"}), None, self.logger)
+        self.assertEqual(resp.body["pagination"]["page_size"], 1)
+        self.assertEqual(resp.body["metadata"]["limit"], 1)
+
+    def test_api_error_returns_500(self):
+        self.store.list_status = 403
+        resp = categories.list_categories(req(), None, self.logger)
+        self.assertEqual(resp.code, 500)
+
+
+class SearchCategoriesTestCase(HandlerTestCase):
+    module = categories
+    data = {DOMAIN: {"AI_Apps": {"category": "AI Apps", "domain": "openai.com"}}}
+
+    def test_finds_by_name_from_query(self):
+        resp = categories.search_categories(req(query={"category": "AI Apps"}), None, self.logger)
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(resp.body["domain"], "openai.com")
+
+    def test_not_found_and_missing_param(self):
+        self.assertEqual(categories.search_categories(req(query={"category": "Nope"}), None, self.logger).code, 404)
+        self.assertEqual(categories.search_categories(req(), None, self.logger).code, 400)
+
+
+# ---------------------------------------------------------------------------
+# CSV import
+# ---------------------------------------------------------------------------
+
+class ImportCsvTestCase(HandlerTestCase):
+    module = categories
+    data = {DOMAIN: {"AI_Applications": {"category": "AI Applications", "domain": "x.com"}}}
+
+    def run_csv(self, text):
+        return categories.import_csv_handler(req({"csv": text}), None, self.logger)
+
+    def test_requires_csv(self):
+        self.assertEqual(categories.import_csv_handler(req({}), None, self.logger).code, 400)
+
+    def test_one_row_per_domain_is_merged_per_category(self):
+        resp = self.run_csv("category,url\nGames,steam.com\nGames,epicgames.com\nNews,bbc.com\nGames,steam.com\n")
+        self.assertEqual(resp.code, 200)
+        self.assertEqual((resp.body["total_rows"], resp.body["successful_imports"], resp.body["failed_imports"]), (4, 2, 0))
+        self.assertEqual(self.store.objects(*DOMAIN)["Games"]["domain"].split(";"),
+                         ["steam.com", "*.steam.com", "epicgames.com", "*.epicgames.com"])
+        self.assertEqual(resp.body["domains_imported"], 6)
+
+    def test_invalid_rows_and_case_conflicts_are_counted(self):
+        resp = self.run_csv("Games,steam.com\nGames,not a domain\n,x.com\nShort\n"
+                            "ai applications,b.com\nAI_Applications,c.com\n")
+        self.assertEqual(resp.body["successful_imports"], 2)   # Games + AI_Applications
+        self.assertEqual(resp.body["failed_imports"], 3)       # bad domain, empty category, case conflict
+        self.assertNotIn("ai_applications", self.store.objects(*DOMAIN))
+        self.assertEqual(self.store.objects(*DOMAIN)["AI_Applications"]["domain"], "c.com;*.c.com")
+
+    def test_write_failures_are_counted(self):
+        self.store.fail_put.add("News")
+        resp = self.run_csv("category,url\nGames,steam.com\nNews,bbc.com\n")
+        self.assertEqual((resp.body["successful_imports"], resp.body["failed_imports"]), (1, 1))
+        self.assertTrue(any("News" in str(c) for c in self.logger.error.call_args_list))
+
+    def test_writes_run_concurrently(self):
+        barrier = threading.Barrier(2, timeout=5)
+        original_put = self.store.PutObjectByVersion
+
+        def put(**kw):
+            barrier.wait()  # only completes if two writes run at the same time
+            return original_put(**kw)
+
+        self.store.PutObjectByVersion = put
+        resp = self.run_csv("category,url\nGames,steam.com\nNews,bbc.com\n")
+        self.assertEqual(resp.body["successful_imports"], 2)
+
+
+# ---------------------------------------------------------------------------
+# Simulator
+# ---------------------------------------------------------------------------
+
+class SimulatePolicyTestCase(HandlerTestCase):
+    module = policies
+    data = {DOMAIN: {
+        "Search": {"category": "Search", "domain": "google.com;*.google.com"},
+        "Games": {"category": "Games", "domain": "steam.com"},
+        "Trading": {"category": "Trading", "domain": "tradingview.com;*tradingview.com"},
+    }}
+
+    def simulate(self, fqdn):
+        return policies.simulate_policy(req(query={"fqdn": fqdn}), None, self.logger)
+
+    def test_reads_fqdn_from_query(self):
+        resp = self.simulate("google.com")
+        self.assertEqual(resp.code, 200)
+        self.assertTrue(resp.body["found"])
+        self.assertEqual(resp.body["category"], "Search")
+
+    def test_subdomain_matches_parent_wildcard(self):
+        resp = self.simulate("Mail.Google.com")
+        self.assertTrue(resp.body["found"])
+        self.assertEqual(resp.body["rule"], "*.google.com")
+
+    def test_subdomain_without_wildcard_is_not_blocked(self):
+        self.assertFalse(self.simulate("store.steam.com").body["found"])
+
+    def test_legacy_wildcard_without_dot_matches_subdomains(self):
+        resp = self.simulate("www.tradingview.com")
+        self.assertTrue(resp.body["found"])
+        self.assertEqual((resp.body["category"], resp.body["rule"]), ("Trading", "*tradingview.com"))
+        self.assertEqual(self.simulate("tradingview.com").body["rule"], "tradingview.com")  # exact entry wins
+
+    def test_unrelated_and_invalid(self):
+        self.assertFalse(self.simulate("example.org").body["found"])
+        self.assertEqual(self.simulate("not a domain").code, 400)
+        self.assertEqual(policies.simulate_policy(req(), None, self.logger).code, 400)
+
+    def test_candidates_never_include_bare_tld(self):
+        self.assertEqual(policies._blocking_candidates(  # pylint: disable=protected-access
+            "a.b.com"), ["a.b.com", "*.a.b.com", "*.b.com"])
 
 
 if __name__ == "__main__":

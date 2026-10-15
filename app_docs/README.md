@@ -3,18 +3,18 @@
 This sample is designed to show how to use URL Filtering in Falcon Foundry. It contains a few capabilities:
 
 1. Python functions:
-
    - **urlblock**: Fetches host groups information
-   - **categories**: Retrieves categories from collections
-   - **create-rule**: Creates firewall management blocking rules
-   - **domain-analytics**: Generates domain analytics information
+   - **create-rule**: Creates a firewall policy and rule group that block the selected categories
+   - **list-policies**: Lists the policies created by the app
+   - **update-policy**: Replaces a policy's categories and whitelist
+   - **delete-policy**: Deletes a policy, its rule group and its stored relationships
+   - **simulate-policy**: Checks whether a domain would be blocked by any category
+   - **check-enforcement** / **health-check**: Verify that policies are enabled and enforcing
+   - **domain-analytics**: Generates domain analytics information (optional `?days=` look-back window, 1-90, default 15)
    - **import-csv**: Transforms category domain CSV into collections
    - **list-categories**: Lists available categories
    - **search-categories**: Searches for specific categories
-   - **manage-categories**: Creates or updates categories
-   - **manage-relationship**: Creates relationships between categories, rule groups, and hosts
-   - **get-relationship**: Retrieves relationship information
-   - **update-rules**: Updates existing rules with new URLs
+   - **manage-category**: Creates or updates categories
 
 2. Collections for data storage:
    - **domain**: Stores URLs and category mappings
@@ -25,15 +25,12 @@ This sample is designed to show how to use URL Filtering in Falcon Foundry. It c
    - **Custom Categories**: Management of domain categories
    - **Domain Analytics**: Visualization of domain data
    - **Firewall Rules**: Management of firewall blocking rules
-   - **Relationship Graph**: Visualization of relationships between categories, rule groups, and host groups
 
 ## Application Setup
 
-When you install this app, you will need to go to the Firewall Rules page and click on the "Setup Application" button to configure the application.
+A fresh install has no categories. Go to the Custom Categories page and import a CSV file (`category,url`; the `url` column holds one domain or a `;`-separated list), or add categories manually.
 
-![Setup Application](setup.png)
-
-> **TIP**: You can import URL categories from a CSV file or manually add categories through the Custom Categories interface.
+To get started quickly, import [`sample-categories.csv`](https://github.com/CrowdStrike/foundry-sample-category-blocking/blob/main/sample-categories.csv) from the GitHub repository. It contains 54 ready-to-use categories (Games, Social Media, Warez, ...).
 
 ## Usage
 
@@ -41,24 +38,23 @@ After installing the app, follow these steps to get started:
 
 1. **Creating URL Categories**
    - Navigate to the **Custom Categories** page
-   - Click "Import Categories" to import from a CSV file, or manually add categories
+   - Use "Import CSV" to import from a CSV file, or manually add categories
    - View and manage your categories from this interface
 
 2. **Creating Blocking Rules**
    - Navigate to the **Category Blocking Policy** page
    - Enter a policy name and select a host group
    - Select the categories you want to block
-   - Click "Preview URLs" to see what will be blocked
+   - Click "Preview Domains" to see what will be blocked
    - Click "Create blocking rule" to deploy the rule
 
 3. **Viewing Analytics**
    - Navigate to the **Domain Analytics** page
-   - View charts and statistics about blocked domains
+   - View tables and statistics about blocked domains
    - Analyze patterns and effectiveness of your blocking rules
 
-4. **Visualizing Relationships**
-   - Navigate to the **Relationship Graph** page
-   - Explore the connections between categories, rule groups, and host groups
-   - Understand how your blocking rules are structured
+4. **Managing Policies**
+   - Navigate to the **Firewall Rules** page
+   - Edit a policy's categories and whitelist, or delete it
 
 The source code for this app can be found on GitHub: <https://github.com/CrowdStrike/foundry-sample-category-blocking>.
