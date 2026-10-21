@@ -3,6 +3,7 @@
 # Handlers deliberately catch every exception to log it and return a 500 response.
 # pylint: disable=broad-exception-caught
 
+import re
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -149,6 +150,28 @@ def _find_policy_id_by_name(fw_policies, policy_name, logger=None):
     return (resources[0].get('id') if resources else None), None
 
 
+NAME_LOOKUP_BATCH = 100  # policy names per FQL `name:[...]` query
+
+
+def _find_policy_ids_by_names(fw_policies, policy_names, logger=None):
+    """
+    Batched _find_policy_id_by_name: one query per NAME_LOOKUP_BATCH names.
+    Returns ({name: policy_id} for the names that exist, None) or (None, error message).
+    """
+    found = {}
+    names = list(dict.fromkeys(policy_names))
+    for i in range(0, len(names), NAME_LOOKUP_BATCH):
+        chunk = names[i:i + NAME_LOOKUP_BATCH]
+        name_filter = ",".join(f"'{_escape_fql(name)}'" for name in chunk)
+        resp = fw_policies.query_combined_policies(filter=f"name:[{name_filter}]", limit=5000)
+        ok, err = _validate_falcon_response(resp, "query_combined_policies", logger)
+        if not ok:
+            return None, err
+        for resource in resp.get('body', {}).get('resources') or []:
+            found.setdefault(resource.get('name'), resource.get('id'))
+    return found, None
+
+
 def _resolve_policy_id(fw_policies, records, logger=None):
     """
     Policy id of a rule group, taken only from its stored relationship records (never from
@@ -179,13 +202,25 @@ def _deleted(response, operation_name, logger=None):
     return _validate_falcon_response(response, operation_name, logger)
 
 
-def _delete_policy(fw_policies, policy_id, operation_name, logger=None):
-    """Disable, then delete a firewall policy (Falcon may refuse to delete an enabled one)."""
-    ok, err = _deleted(fw_policies.perform_action(action_name="disable", ids=policy_id),
-                       f"{operation_name}_disable", logger)
+def _delete_policy(fw_policies, policy_id, operation_name, logger=None, reenable_on_failure=True):
+    """
+    Disable, then delete a firewall policy (Falcon may refuse to delete an enabled one).
+    If the delete fails after the disable succeeded, the policy is enabled again so its host
+    group stays protected (`reenable_on_failure=False` leaves it disabled, for rollbacks).
+    """
+    disable_resp = fw_policies.perform_action(action_name="disable", ids=policy_id)
+    ok, err = _deleted(disable_resp, f"{operation_name}_disable", logger)
     if not ok:
         return False, err
-    return _deleted(fw_policies.delete_policies(ids=policy_id), operation_name, logger)
+    ok, err = _deleted(fw_policies.delete_policies(ids=policy_id), operation_name, logger)
+    if ok or not reenable_on_failure or disable_resp.get("status_code") == 404:
+        return ok, err
+    enabled, enable_err = _validate_falcon_response(
+        fw_policies.perform_action(action_name="enable", ids=policy_id), f"{operation_name}_reenable", logger)
+    if not enabled:
+        return False, (f"{err}; the policy was left disabled and could not be enabled again "
+                       f"({enable_err}), so it must be enabled manually in Falcon")
+    return False, err
 
 
 def _rollback(mgmt, fw_policies, policy_id, rg_id, logger=None):
@@ -194,7 +229,8 @@ def _rollback(mgmt, fw_policies, policy_id, rg_id, logger=None):
     Returns a message saying whether everything was actually removed.
     """
     leftovers = []
-    if policy_id and not _delete_policy(fw_policies, policy_id, "rollback_delete_policy", logger)[0]:
+    if policy_id and not _delete_policy(fw_policies, policy_id, "rollback_delete_policy", logger,
+                                        reenable_on_failure=False)[0]:
         leftovers.append(f"policy {policy_id}")
     if rg_id and not _deleted(mgmt.delete_rule_groups(ids=[rg_id]), "rollback_delete_rule_group", logger)[0]:
         leftovers.append(f"rule group {rg_id}")
@@ -436,6 +472,14 @@ def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
         return Response(code=500, body={"error": "Failed to delete policy"})
 
 
+_UPDATING_SUFFIX = re.compile(r'(?: \(updating [0-9a-f]{8}\))+$')
+
+
+def _strip_updating_suffix(policy_name: str) -> str:
+    """'P (updating ab12cd34)' -> 'P': the temporary name an update uses while the old policy exists."""
+    return _UPDATING_SUFFIX.sub('', policy_name).strip()
+
+
 @FUNC.handler(method='POST', path='/update-policy')
 # pylint: disable-next=too-many-locals,too-many-return-statements,too-many-branches,too-many-statements
 def update_policy(request: Request, _: dict, logger: Logger) -> Response:
@@ -447,27 +491,19 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
       3. rename the new policy and delete the old rule group
       4. write the new relationships, then remove the old ones
 
-    The policy being replaced is resolved from the stored relationship records, never taken
-    from the request.
+    The policy being replaced, its host group, name and platform are taken from the stored
+    relationship records; the request is only used for legacy records that lack them.
     """
     logger.info("Starting update-policy handler")
     try:
         body = request.body or {}
         old_rg_id = body.get('ruleGroupId', '').strip()
-        policy_name = body.get('policyName', '').strip()
-        host_group_id = body.get('hostGroupId', '').strip()
-        platform = body.get('platform', '').strip().lower()
         categories = body.get('categories', {})
         whitelist_raw = body.get('whitelist', '').strip()
-        host_group_name = body.get('hostGroupName', 'Unknown')
         username, username_source = resolve_creator(request)
 
-        if not old_rg_id or not policy_name or not host_group_id or not isinstance(categories, dict):
+        if not old_rg_id or not isinstance(categories, dict):
             return Response(code=400, body={"error": "Missing required fields"})
-
-        rules_list = _build_rules_list(policy_name, categories, whitelist_raw)
-        if not rules_list:
-            return Response(code=400, body={"error": "No valid rules could be built"})
 
         mgmt = get_client(FirewallManagement)
         fw_policies = get_client(FirewallPolicies)
@@ -479,16 +515,32 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
         if not old_records:
             return Response(code=404, body={"error": f"No policy managed by this app uses rule group {old_rg_id}"})
 
+        def _stored(field):
+            return next((r.get(field) for r in old_records if r.get(field)), None)
+
+        host_group_id = _stored('host_group_id') or body.get('hostGroupId', '').strip()
+        host_group_name = _stored('host_group_name') or body.get('hostGroupName', 'Unknown')
+        # A failed rename leaves the temporary suffix in the stored name: drop it so it does not nest
+        policy_name = _strip_updating_suffix(_stored('policy_name') or body.get('policyName', '').strip())
+        if not policy_name or not host_group_id:
+            return Response(code=400, body={"error": "Missing required fields"})
+
+        rules_list = _build_rules_list(policy_name, categories, whitelist_raw)
+        if not rules_list:
+            return Response(code=400, body={"error": "No valid rules could be built"})
+
         # Records written by earlier versions have no policy_id: resolve it by name
         old_policy_id, err = _resolve_policy_id(fw_policies, old_records, logger)
         if err:
             return Response(code=500, body={"error": f"Failed to look up the current policy: {err}. Nothing was changed."})
 
-        # Records written by earlier versions have no platform either: read it from the Falcon policy
-        if platform not in PLATFORM_NAMES:
-            platform = next((r.get('platform') for r in old_records if r.get('platform') in PLATFORM_NAMES), None)
-        if platform is None and old_policy_id:
+        # Records written by earlier versions have no platform either: read it from the Falcon
+        # policy, and only when there is none fall back to the request
+        platform = _stored('platform')
+        if platform not in PLATFORM_NAMES and old_policy_id:
             platform = _policy_platform(fw_policies, old_policy_id, logger)
+        if platform not in PLATFORM_NAMES and not old_policy_id:
+            platform = body.get('platform', '').strip().lower()
         if platform not in PLATFORM_NAMES:
             return Response(code=400, body={
                 "error": f"Could not determine the platform; it must be one of: {', '.join(PLATFORM_NAMES)}"})
@@ -561,6 +613,7 @@ def _blocking_candidates(fqdn: str) -> list:
 
 
 @FUNC.handler(method='GET', path='/simulate-policy')
+# pylint: disable-next=too-many-return-statements
 def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
     """Report whether a given FQDN would be blocked by any stored category."""
     try:
@@ -573,14 +626,16 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
         custom_storage = get_client(CustomStorage)
         candidates = _blocking_candidates(fqdn)
 
+        def _domains(item):
+            return {d.strip().lower() for d in item.get('domain', '').split(';') if d.strip()}
+
         def _matching_entry(item):
-            domains = {d.strip().lower() for d in item.get('domain', '').split(';') if d.strip()}
-            exact = next((c for c in candidates if c in domains), None)
-            if exact:
-                return exact
+            return next((c for c in candidates if c in _domains(item)), None)
+
+        def _legacy_matching_entry(item):
             # Categories stored by earlier versions use wildcards without a dot (*example.com),
             # which Falcon matches against any name ending in "example.com"
-            return next((d for d in sorted(domains)
+            return next((d for d in sorted(_domains(item))
                          if d.startswith('*') and not d.startswith('*.') and len(d) > 1 and fqdn.endswith(d[1:])),
                         None)
 
@@ -590,12 +645,27 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
         if "error" in result:
             return Response(code=500, body={"error": "Failed to simulate"})
 
-        item = result["match"]
-        if item:
-            return Response(code=200, body={"found": True, "category": item.get('category'),
-                                            "rule": _matching_entry(item),
+        def _blocked(item, rule):
+            return Response(code=200, body={"found": True, "category": item.get('category'), "rule": rule,
                                             "message": f"Blocked by {item.get('category')}",
                                             "pagination": result["pagination"]})
+
+        item = result["match"]
+        if item:
+            return _blocked(item, _matching_entry(item))
+
+        # _sanitize_url_list drops dotless wildcards, so they only block in policies deployed by
+        # earlier versions (relationship records without policy_id) that were never re-saved
+        legacy_matches = [(i, _legacy_matching_entry(i)) for i in result["resources"] if _legacy_matching_entry(i)]
+        if legacy_matches:
+            relationships = read_all_objects(custom_storage, "relationship", COLLECTION_RELATION_VER, logger=logger)
+            if "error" in relationships:
+                return Response(code=500, body={"error": "Failed to simulate"})
+            legacy_categories = {r.get('category_name') for r in relationships["resources"]
+                                 if isinstance(r, dict) and not r.get('policy_id')}
+            for legacy_item, rule in legacy_matches:
+                if legacy_item.get('category') in legacy_categories:
+                    return _blocked(legacy_item, rule)
 
         return Response(code=200, body={"found": False, "category": None, "message": "Not blocked",
                                         "pagination": result["pagination"]})
@@ -616,7 +686,11 @@ def check_enforcement(request: Request, _: dict, logger: Logger) -> Response:
         mgmt = get_client(FirewallManagement)
         resp = mgmt.get_policy_containers(ids=policy_id)
 
-        if resp.get('status_code') != 200 or not resp.get('body', {}).get('resources'):
+        if resp.get('status_code') != 404:
+            ok, err = _validate_falcon_response(resp, "get_policy_containers", logger)
+            if not ok:
+                return Response(code=502, body={"error": f"Failed to read the policy container from Falcon: {err}"})
+        if not (resp.get('body') or {}).get('resources'):
             return Response(code=404, body={"error": "Policy container not found"})
 
         container = resp['body']['resources'][0]
@@ -684,15 +758,15 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
                 continue
             unique_policies.setdefault(item.get('policy_id') or f"name:{policy_name}", item)
 
-        # Legacy records (no policy_id): resolve by name, with the value escaped for FQL
-        resolved = {}  # key -> policy_id
-        for key, item in unique_policies.items():
-            if key.startswith("name:"):
-                resolved[key], err = _find_policy_id_by_name(fw_policies, item['policy_name'], logger)
-                if err:
-                    return Response(code=502, body={"error": f"Failed to look up policies in Falcon: {err}"})
-            else:
-                resolved[key] = key
+        # Legacy records (no policy_id): resolve by name in batches, with the values escaped for FQL
+        legacy_names = [item['policy_name'] for key, item in unique_policies.items() if key.startswith("name:")]
+        ids_by_name, err = _find_policy_ids_by_names(fw_policies, legacy_names, logger)
+        if err:
+            return Response(code=502, body={"error": f"Failed to look up policies in Falcon: {err}"})
+        resolved = {  # key -> policy_id
+            key: ids_by_name.get(item['policy_name']) if key.startswith("name:") else key
+            for key, item in unique_policies.items()
+        }
 
         policy_ids = list(dict.fromkeys(pid for pid in resolved.values() if pid))
         policies_by_id, err = _get_by_ids(fw_policies.get_policies, policy_ids, 'id', "get_policies", logger)

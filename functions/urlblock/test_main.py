@@ -20,6 +20,7 @@ from conftest import FakeStorage, falcon_response
 from handlers import categories, policies
 
 DOMAIN = ("domain", "v2.0")
+REL = ("relationship", "v5.0")
 
 
 def req(body=None, query=None, context=None):
@@ -254,7 +255,7 @@ class SimulatePolicyTestCase(HandlerTestCase):
     data = {DOMAIN: {
         "Search": {"category": "Search", "domain": "google.com;*.google.com"},
         "Games": {"category": "Games", "domain": "steam.com"},
-        "Trading": {"category": "Trading", "domain": "tradingview.com;*tradingview.com"},
+        "Trading": {"category": "Trading", "domain": "tradingview.com;*.tradingview.com;*tradingview.com"},
     }}
 
     def simulate(self, fqdn):
@@ -274,11 +275,29 @@ class SimulatePolicyTestCase(HandlerTestCase):
     def test_subdomain_without_wildcard_is_not_blocked(self):
         self.assertFalse(self.simulate("store.steam.com").body["found"])
 
-    def test_legacy_wildcard_without_dot_matches_subdomains(self):
-        resp = self.simulate("www.tradingview.com")
+    def deploy_trading(self, policy_id):
+        """A relationship record for Trading, as written by this version (policy_id) or an earlier one."""
+        record = {"category_name": "Trading", "rule_group_id": "rg"}
+        if policy_id:
+            record["policy_id"] = policy_id
+        self.store.objects(*REL)["Trading_rg_hg"] = record
+
+    def test_legacy_wildcard_without_dot_matches_names_in_legacy_policies(self):
+        self.deploy_trading(policy_id=None)
+        resp = self.simulate("evil-tradingview.com")
         self.assertTrue(resp.body["found"])
         self.assertEqual((resp.body["category"], resp.body["rule"]), ("Trading", "*tradingview.com"))
         self.assertEqual(self.simulate("tradingview.com").body["rule"], "tradingview.com")  # exact entry wins
+
+    def test_legacy_wildcard_is_ignored_when_deployed_by_this_version(self):
+        # _sanitize_url_list drops "*tradingview.com", so the deployed rule only has the dotted wildcard
+        self.deploy_trading(policy_id="pol-1")
+        self.assertFalse(self.simulate("evil-tradingview.com").body["found"])
+        self.assertEqual(self.simulate("www.tradingview.com").body["rule"], "*.tradingview.com")
+
+    def test_legacy_wildcard_relationship_read_error(self):
+        self.store.list_status = 500
+        self.assertEqual(self.simulate("evil-tradingview.com").code, 500)
 
     def test_unrelated_and_invalid(self):
         self.assertFalse(self.simulate("example.org").body["found"])

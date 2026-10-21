@@ -3,7 +3,7 @@
 
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from crowdstrike.foundry.function import Request, RequestParams
 
@@ -248,6 +248,45 @@ class PolicyUpdateDeleteTestCase(PolicyBase):
         self.mgmt.delete_rule_groups.assert_called_once_with(ids=["rg-new"])
         self.pol.update_policies.assert_not_called()
         self.assertIn("old1", self.rel())
+        # the old policy was disabled before the failed delete: it must be enforcing again
+        self.assertIn(call(action_name="enable", ids="pol-old"), self.pol.perform_action.call_args_list)
+        # the rolled-back new policy is not re-enabled
+        self.assertNotIn(call(action_name="enable", ids="pol-new"), self.pol.perform_action.call_args_list[1:])
+
+    def test_update_reports_old_policy_left_disabled(self):
+        self.pol.delete_policies.side_effect = lambda **k: (
+            {"status_code": 403, "body": {"errors": [{"message": "forbidden"}]}} if k["ids"] == "pol-old" else OK)
+        self.pol.perform_action.side_effect = lambda **k: (
+            {"status_code": 500} if (k["action_name"], k["ids"]) == ("enable", "pol-old") else OK)
+        resp = self.update()
+        self.assertEqual(resp.code, 500)
+        self.assertIn("left disabled", resp.body["error"])
+
+    def test_update_uses_stored_host_group_and_platform(self):
+        resp = self.update(dict(self.update_body, hostGroupId="hg-other", platform="mac", hostGroupName="X"))
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(self.pol.perform_action.call_args_list[1],
+                         call(action_name="add-host-group", group_id="hg1", ids="pol-new"))
+        self.assertEqual(self.pol.create_policies.call_args.kwargs["platform_name"], "Windows")
+        self.assertEqual(self.mgmt.create_rule_group.call_args.kwargs["platform"], "windows")
+        self.assertEqual(set(self.rel()), {"other", "Games_rg-new_hg1"})
+
+    def test_update_legacy_record_without_host_group_uses_request(self):
+        for key in ("old1", "old2"):
+            self.rel()[key].pop("host_group_id")
+        self.assertEqual(self.update(dict(self.update_body, hostGroupId="hg9")).code, 200)
+        self.assertIn("Games_rg-new_hg9", self.rel())
+        self.assertEqual(self.update(dict(self.update_body, ruleGroupId="rg-new", hostGroupId="")).code, 200)
+
+    def test_update_strips_temporary_name_left_by_failed_rename(self):
+        for key in ("old1", "old2"):
+            self.rel()[key]["policy_name"] = "P (updating ab12cd34) (updating 0123abcd)"
+        order = self.record_calls()
+        resp = self.update(dict(self.update_body, policyName="P (updating ab12cd34) (updating 0123abcd)"))
+        self.assertEqual(resp.code, 200)
+        self.assertRegex(order[0][1], r"^P \(updating [0-9a-f]{8}\)$")
+        self.assertIn(("rename", "pol-new", "P"), order)
+        self.assertEqual(self.rel()["Games_rg-new_hg1"]["policy_name"], "P")
 
     def test_update_reports_rename_and_cleanup_failures_as_warnings(self):
         self.pol.update_policies.return_value = {"status_code": 500}
@@ -328,6 +367,15 @@ class PolicyUpdateDeleteTestCase(PolicyBase):
         self.assertIn("forbidden", resp.body["error"])
         self.mgmt.delete_rule_groups.assert_not_called()
         self.assertIn("old1", self.rel())
+        self.assertEqual(self.pol.perform_action.call_args_list, [
+            call(action_name="disable", ids="pol-old"), call(action_name="enable", ids="pol-old")])
+
+    def test_delete_policy_failure_reports_policy_left_disabled(self):
+        self.pol.delete_policies.return_value = {"status_code": 500}
+        self.pol.perform_action.side_effect = lambda **k: OK if k["action_name"] == "disable" else {"status_code": 500}
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual(resp.code, 500)
+        self.assertIn("left disabled", resp.body["error"])
 
     def test_delete_disable_failure_deletes_nothing(self):
         self.pol.perform_action.return_value = {"status_code": 500}
@@ -399,8 +447,28 @@ class PolicyQueryTestCase(PolicyBase):
         self.store.data[REL] = {"a": {"policy_name": "o'brien' OR name:*"}}
         self.pol.query_combined_policies.return_value = falcon_ok([])
         resp = policies.health_check(req(), None, self.logger)
-        self.assertEqual(self.pol.query_combined_policies.call_args.kwargs["filter"], "name:'o\\'brien\\' OR name:*'")
+        self.assertEqual(self.pol.query_combined_policies.call_args.kwargs["filter"], "name:['o\\'brien\\' OR name:*']")
         self.assertEqual(resp.body["policies"][0]["issues"], ["Policy not found in Falcon"])
+
+    def test_health_check_resolves_legacy_names_in_batches(self):
+        self.store.data[REL] = {f"r{i:03d}": {"policy_name": f"N{i}"} for i in range(150)}
+        self.pol.query_combined_policies.side_effect = lambda **k: falcon_ok(
+            [{"id": f"id-{n.strip(chr(39))}", "name": n.strip(chr(39))} for n in k["filter"][6:-1].split(",")])
+        self.pol.get_policies.side_effect = lambda ids: falcon_ok([{"id": i, "enabled": True, "groups": [1]} for i in ids])
+        self.mgmt.get_policy_containers.side_effect = lambda ids: falcon_ok(
+            [{"policy_id": i, "enforce": True, "rule_group_ids": ["rg"]} for i in ids])
+
+        resp = policies.health_check(req(), None, self.logger)
+
+        self.assertEqual(self.pol.query_combined_policies.call_count, 2)
+        self.assertEqual(resp.body["healthy_count"], 150)
+
+    def test_health_check_legacy_lookup_error_is_502(self):
+        self.store.data[REL] = {"a": {"policy_name": "A"}}
+        self.pol.query_combined_policies.return_value = {"status_code": 429, "body": {"errors": [{"message": "slow"}]}}
+        resp = policies.health_check(req(), None, self.logger)
+        self.assertEqual(resp.code, 502)
+        self.assertIn("slow", resp.body["error"])
 
     def test_health_check_reports_falcon_errors_instead_of_missing_policies(self):
         self.store.data[REL] = {"a": {"policy_id": "p1", "policy_name": "A"}}
@@ -440,6 +508,16 @@ class PolicyQueryTestCase(PolicyBase):
         self.assertEqual((resp.code, resp.body["enforce"]), (200, True))
         self.mgmt.get_policy_containers.assert_called_once_with(ids="p1")
         self.assertEqual(policies.check_enforcement(req(), None, self.logger).code, 400)
+
+    def test_check_enforcement_reports_falcon_errors(self):
+        self.mgmt.get_policy_containers.return_value = {"status_code": 429, "body": {"errors": [{"message": "slow"}]}}
+        resp = policies.check_enforcement(req(query={"policy_id": "p1"}), None, self.logger)
+        self.assertEqual(resp.code, 502)
+        self.assertIn("slow", resp.body["error"])
+
+        for not_found in ({"status_code": 404, "body": {"resources": []}}, falcon_ok([])):
+            self.mgmt.get_policy_containers.return_value = not_found
+            self.assertEqual(policies.check_enforcement(req(query={"policy_id": "p1"}), None, self.logger).code, 404)
 
 
 class AnalyticsTruncatedTestCase(unittest.TestCase):
@@ -491,10 +569,37 @@ class AnalyticsTruncatedTestCase(unittest.TestCase):
         self.assertTrue(resp.body["truncated"])
         self.assertEqual(mgmt.query_events.call_count, 20)
 
-    def test_truncated_on_api_error(self):
+    def test_error_when_first_page_fails(self):
         mgmt = MagicMock()
-        mgmt.query_events.return_value = {"status_code": 500}
-        self.assertTrue(self.run_handler(mgmt).body["truncated"])
+        mgmt.query_events.return_value = {"status_code": 403, "body": {"errors": [{"message": "missing scope"}]}}
+        resp = self.run_handler(mgmt)
+        self.assertEqual(resp.code, 502)
+        self.assertIn("missing scope", resp.body["error"])
+
+        mgmt = MagicMock()
+        mgmt.query_events.return_value = falcon_ok(["e1"])
+        mgmt.get_events.return_value = {"status_code": 500}
+        self.assertEqual(self.run_handler(mgmt).code, 502)
+
+        mgmt = MagicMock()
+        mgmt.query_events.side_effect = RuntimeError("boom")
+        self.assertEqual(self.run_handler(mgmt).code, 502)
+
+    def test_truncated_on_api_error_after_first_page(self):
+        mgmt = MagicMock()
+        mgmt.query_events.side_effect = [falcon_ok([f"e{i}" for i in range(500)]), {"status_code": 500}]
+        mgmt.get_events.return_value = falcon_ok([self.event])
+        resp = self.run_handler(mgmt)
+        self.assertEqual(resp.code, 200)
+        self.assertTrue(resp.body["truncated"])
+        self.assertEqual(resp.body["visualization_data"]["summary"]["total_blocks"], 1)
+
+    def test_empty_window_is_not_an_error(self):
+        mgmt = MagicMock()
+        mgmt.query_events.return_value = falcon_ok([])
+        resp = self.run_handler(mgmt)
+        self.assertEqual(resp.code, 200)
+        self.assertFalse(resp.body["truncated"])
 
 
 if __name__ == "__main__":

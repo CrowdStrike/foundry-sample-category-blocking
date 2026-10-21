@@ -13,7 +13,7 @@ from crowdstrike.foundry.function import Request, Response
 from falconpy import FirewallManagement
 
 from app_core import FUNC, get_client
-from app_utils import query_param
+from app_utils import query_param, _validate_falcon_response
 
 DEFAULT_DAYS = 15  # look-back window when the request does not set ?days=
 MAX_DAYS = 90
@@ -57,7 +57,9 @@ def get_domain_analytics(request: Request, _: dict, logger: Logger) -> Response:
         limit = 500
         max_pages = 20  # cap: 10,000 events per request
         pages = 0
+        pages_read = 0  # pages whose events were actually read
         truncated = False
+        error = None
 
         while True:
             if pages >= max_pages:
@@ -73,17 +75,21 @@ def get_domain_analytics(request: Request, _: dict, logger: Logger) -> Response:
                 })
 
                 if query_response['status_code'] != 200:
+                    _ok, error = _validate_falcon_response(query_response, "query_events", logger)
                     truncated = True
                     break
                 if not query_response['body']['resources']:
+                    pages_read += 1
                     break
 
                 event_ids = query_response['body']['resources']
                 events_response = firewall_mgmt.get_events(ids=event_ids)
 
                 if events_response['status_code'] != 200:
+                    _ok, error = _validate_falcon_response(events_response, "get_events", logger)
                     truncated = True
-                if events_response['status_code'] == 200:
+                else:
+                    pages_read += 1
                     for event in events_response['body']['resources']:
                         if 'domain_name_list' not in event:
                             continue
@@ -125,8 +131,13 @@ def get_domain_analytics(request: Request, _: dict, logger: Logger) -> Response:
 
             except Exception as e:
                 logger.error(f"Error fetching events batch: {str(e)}")
+                error = "Unexpected error while reading firewall events"
                 truncated = True
                 break
+
+        # Nothing could be read at all: an empty report would read as "nothing was blocked"
+        if pages_read == 0 and error:
+            return Response(code=502, body={"error": f"Failed to read firewall events from Falcon: {error}"})
 
         logger.info(f"Total unique domains aggregated: {len(domain_visits)}")
 
