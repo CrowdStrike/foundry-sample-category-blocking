@@ -112,6 +112,7 @@ class FakeStorage:
         self.json_objects = json_objects
         self.fail_get, self.fail_put, self.fail_delete = set(), set(), set()
         self.list_status = 200
+        self.list_status_by_collection = {}  # {collection: status}: fail only that collection's listing
         self.calls = []
 
     def objects(self, collection, version):
@@ -119,8 +120,9 @@ class FakeStorage:
 
     def ListObjectsByVersion(self, collection_name, collection_version, limit=50, start=None, **_):
         self.calls.append(("list", collection_name, start))
-        if self.list_status != 200:
-            return falcon_response(self.list_status, errors=[{"message": "boom"}])
+        status = self.list_status_by_collection.get(collection_name, self.list_status)
+        if status != 200:
+            return falcon_response(status, errors=[{"message": "boom"}])
         keys = sorted(self.objects(collection_name, collection_version))
         if start:
             keys = [k for k in keys if k >= start]

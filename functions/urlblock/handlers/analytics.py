@@ -79,51 +79,51 @@ def get_domain_analytics(request: Request, _: dict, logger: Logger) -> Response:
                     truncated = True
                     break
                 if not query_response['body']['resources']:
-                    pages_read += 1
                     break
 
                 event_ids = query_response['body']['resources']
                 events_response = firewall_mgmt.get_events(ids=event_ids)
 
+                # Stop at the first failure, like query_events, instead of retrying into throttling
                 if events_response['status_code'] != 200:
                     _ok, error = _validate_falcon_response(events_response, "get_events", logger)
                     truncated = True
-                else:
-                    pages_read += 1
-                    for event in events_response['body']['resources']:
-                        if 'domain_name_list' not in event:
-                            continue
+                    break
+                pages_read += 1
+                for event in events_response['body']['resources']:
+                    if 'domain_name_list' not in event:
+                        continue
 
-                        domain = event['domain_name_list']
-                        remote_ip = event.get('remote_address', '')
-                        host = event.get('host_name', 'Unknown')
-                        policy = event.get('policy_name', 'Unknown')
-                        rule = event.get('rule_name', 'Unknown')
+                    domain = event['domain_name_list']
+                    remote_ip = event.get('remote_address', '')
+                    host = event.get('host_name', 'Unknown')
+                    policy = event.get('policy_name', 'Unknown')
+                    rule = event.get('rule_name', 'Unknown')
 
-                        try:
-                            ts = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
-                        except (KeyError, ValueError):
-                            ts = None
+                    try:
+                        ts = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
+                    except (KeyError, ValueError):
+                        ts = None
 
-                        domain_visits[domain] += 1
-                        domain_ips[domain].add(remote_ip)
-                        domain_hosts[domain].add(host)
-                        all_unique_hosts.add(host)
+                    domain_visits[domain] += 1
+                    domain_ips[domain].add(remote_ip)
+                    domain_hosts[domain].add(host)
+                    all_unique_hosts.add(host)
 
-                        if ts is not None:
-                            if domain not in domain_first_seen:
+                    if ts is not None:
+                        if domain not in domain_first_seen:
+                            domain_first_seen[domain] = ts
+                            domain_last_seen[domain] = ts
+                        else:
+                            if ts < domain_first_seen[domain]:
                                 domain_first_seen[domain] = ts
+                            if ts > domain_last_seen[domain]:
                                 domain_last_seen[domain] = ts
-                            else:
-                                if ts < domain_first_seen[domain]:
-                                    domain_first_seen[domain] = ts
-                                if ts > domain_last_seen[domain]:
-                                    domain_last_seen[domain] = ts
-                            daily_blocks[ts.date().isoformat()] += 1
+                        daily_blocks[ts.date().isoformat()] += 1
 
-                        if domain not in domain_policy:
-                            domain_policy[domain] = policy
-                            domain_rule[domain] = rule
+                    if domain not in domain_policy:
+                        domain_policy[domain] = policy
+                        domain_rule[domain] = rule
 
                 offset += limit
                 if len(event_ids) < limit:
