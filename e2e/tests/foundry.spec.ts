@@ -62,8 +62,7 @@ test.describe('Category Blocking App E2E Tests', () => {
         'Category Blocking Policy',
         'Custom Categories',
         'Domain Analytics',
-        'Firewall Rules',
-        'Relationship Graph'
+        'Firewall Rules'
       ];
 
       for (const tabName of tabs) {
@@ -72,7 +71,7 @@ test.describe('Category Blocking App E2E Tests', () => {
         logger.info(`Tab found: ${tabName}`);
       }
 
-      logger.success('All 5 navigation tabs are present and visible');
+      logger.success('All 4 navigation tabs are present and visible');
     });
   });
 
@@ -125,22 +124,6 @@ test.describe('Category Blocking App E2E Tests', () => {
       logger.success('Firewall Rules tab clicked and activated successfully');
     });
 
-    test('should click Relationship Graph tab and verify navigation', async ({ page, categoryBlockingPage }) => {
-      await categoryBlockingPage.navigateToInstalledApp();
-
-      const iframe = page.frameLocator('iframe[name="portal"]');
-
-      await expect(iframe.locator('h1:has-text("Category Blocking")')).toBeVisible({ timeout: 15000 });
-
-      const relationshipGraphTab = iframe.locator('a:has-text("Relationship Graph")');
-      await relationshipGraphTab.click();
-
-      const activeTab = iframe.locator('sl-tab[active]', { hasText: 'Relationship Graph' });
-      await expect(activeTab).toBeVisible({ timeout: 5000 });
-
-      logger.success('Relationship Graph tab clicked and activated successfully');
-    });
-
     test('should verify all tabs are clickable in sequence', async ({ page, categoryBlockingPage }) => {
       await categoryBlockingPage.navigateToInstalledApp();
 
@@ -152,7 +135,6 @@ test.describe('Category Blocking App E2E Tests', () => {
         'Custom Categories',
         'Domain Analytics',
         'Firewall Rules',
-        'Relationship Graph',
         'Category Blocking Policy'
       ];
 

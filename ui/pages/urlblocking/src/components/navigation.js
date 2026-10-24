@@ -100,8 +100,7 @@ export function TabNavigation({ children }) {
               { path: '/', label: 'Category Blocking Policy' },
               { path: '/about', label: 'Custom Categories' },
               { path: '/domain-analytics', label: 'Domain Analytics' },
-              { path: '/firewall-rules', label: 'Firewall Rules' },
-              { path: '/relationship', label: 'Relationship Graph' }
+              { path: '/firewall-rules', label: 'Firewall Rules' }
             ].map(({ path, label }) => (
               <SlTab
                 key={path}

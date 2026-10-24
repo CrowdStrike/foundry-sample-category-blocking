@@ -8,16 +8,16 @@ import { Home } from "./routes/home.js";
 import { About } from "./routes/about.js";
 import { DomainAnalytics } from "./routes/domain-analytics.js";
 import { FirewallRules } from './routes/FirewallRules.js';
-import { Relationship } from "./routes/relationship.js";
 import ReactDOM from "react-dom/client";
 import { TabNavigation } from "./components/navigation.js";
 import { SlSpinner } from "@shoelace-style/shoelace/dist/react";
 import '@shoelace-style/shoelace/dist/themes/light.css';
+import '@shoelace-style/shoelace/dist/themes/dark.css';
 
 
 function Root() {
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
+    <div className="min-h-screen sl-theme-dark p-4">
       <div className="max-w-screen-2xl mx-auto px-4">
         <Routes>
           <Route
@@ -31,8 +31,7 @@ function Root() {
             <Route path="/about" element={<About />} />
             <Route path="/domain-analytics" element={<DomainAnalytics />} />
             <Route path="/firewall-rules" element={<FirewallRules />} />
-            <Route path="/relationship" element={<Relationship />} />
-
+            
           </Route>
         </Routes>
       </div>
@@ -41,7 +40,7 @@ function Root() {
 }
 
 function App() {
-  const { falcon, navigation, isInitialized } = useFalconApiContext();
+  const { falcon, navigation, isInitialized, cachedCategories, refreshCategories } = useFalconApiContext();
 
   if (!isInitialized) {
     return (
@@ -56,7 +55,7 @@ function App() {
 
   return (
     <React.StrictMode>
-      <FalconApiContext.Provider value={{ falcon, navigation, isInitialized }}>
+      <FalconApiContext.Provider value={{ falcon, navigation, isInitialized, cachedCategories, refreshCategories }}>
         <HashRouter>
           <Root />
         </HashRouter>
@@ -72,3 +71,6 @@ if (!domContainer) {
   const root = ReactDOM.createRoot(domContainer);
   root.render(<App />);
 }
+
+
+

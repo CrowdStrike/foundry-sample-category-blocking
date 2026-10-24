@@ -1,18 +1,47 @@
-import React, { useState, useContext } from "react";
-import { SlAlert } from "@shoelace-style/shoelace/dist/react";
+import React, { useState, useContext, useRef } from "react";
+import { SlAlert, SlButton } from "@shoelace-style/shoelace/dist/react";
 import { FalconApiContext } from "../contexts/falcon-api-context";
+import { callFunction } from "../utils/api.js";
 
 function About() {
-  const { falcon } = useContext(FalconApiContext);
+  const { falcon, refreshCategories } = useContext(FalconApiContext);
   const [categoryName, setCategoryName] = useState('');
   const [urls, setUrls] = useState('');
   const [status, setStatus] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // CSV import
+  const fileInputRef = useRef(null);
+  const [csvFile, setCsvFile] = useState(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState(null);
+
+  const handleImportCsv = async () => {
+    if (!csvFile) return;
+    try {
+      setIsImporting(true);
+      setImportStatus(null);
+      const csv = await csvFile.text();
+      const b = await callFunction(falcon, 'POST', '/import-csv', { csv });
+      setImportStatus({
+        type: b.failed_imports > 0 ? 'warning' : 'success',
+        message: `Imported ${b.successful_imports} categories (${b.domains_imported} domains) from ${b.total_rows} rows` +
+          (b.failed_imports > 0 ? `; ${b.failed_imports} rows/categories failed (see function logs).` : '.')
+      });
+      setCsvFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      refreshCategories?.();
+    } catch (error) {
+      console.error('Import CSV error:', error);
+      setImportStatus({ type: 'error', message: `Error: ${error.message}` });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const handleCreateCategory = async () => {
     try {
       setIsLoading(true);
-      console.log('Starting category creation');
 
       if (!categoryName.trim()) {
         throw new Error('Please enter a category name');
@@ -28,36 +57,19 @@ function About() {
         .filter(url => url.length > 0)
         .join(',');
 
-      const config = {
-        name: 'urlblock',
-        version: 1
-      };
-
-      const cloudFunction = falcon.cloudFunction(config);
-
-      console.log('Sending request with:', {
+      const result = await callFunction(falcon, 'POST', '/manage-category', {
         categoryName: categoryName.trim(),
         urls: cleanedUrls
       });
 
-      const response = await cloudFunction.path('/manage-category').post({
-        categoryName: categoryName.trim(),
-        urls: cleanedUrls
+      setStatus({
+        type: 'success',
+        message: `Category created successfully with ${result.urlCount || 0} URLs!`
       });
-
-      console.log('Response:', response);
-
-      if (response.status_code === 200) {
-        setStatus({
-          type: 'success',
-          message: `Category created successfully with ${response.body.urlCount || 0} URLs!`
-        });
-        // Clear form
-        setCategoryName('');
-        setUrls('');
-      } else {
-        throw new Error(response.body.error || 'Failed to create category');
-      }
+      // Clear form
+      setCategoryName('');
+      setUrls('');
+      refreshCategories?.();
     } catch (error) {
       console.error('Error in handleCreateCategory:', error);
       setStatus({
@@ -123,7 +135,7 @@ return (
         </div>
 
         {/* Create Button */}
-        <sl-button
+        <SlButton
           variant="primary"
           onClick={handleCreateCategory}
           loading={isLoading}
@@ -137,18 +149,63 @@ return (
           }}
         >
           {isLoading ? 'Creating Category...' : 'Create Category'}
-        </sl-button>
+        </SlButton>
 
         {/* Status Message */}
         {status && (
-          <sl-alert
+          <SlAlert
             variant={status.type === 'error' ? 'danger' : 'success'}
+            open
             closable
             onSlAfterHide={() => setStatus(null)}
           >
             {status.message}
-          </sl-alert>
+          </SlAlert>
         )}
+
+        {/* Import CSV */}
+        <div className="form-group" style={{ borderTop: '1px solid #E5E7EB', paddingTop: '24px' }}>
+          <h2 className="text-lg font-semibold text-black mb-2 text-left">Import categories from CSV</h2>
+          <p className="mb-2 text-sm text-gray-600">
+            Format: <code>category,url</code> with a header row and one domain per row
+            (e.g. <code>Games,steam.com</code>). Rows of the same category are merged and
+            <code> *.domain</code> wildcards are added automatically. Existing categories are replaced.
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => { setCsvFile(e.target.files?.[0] ?? null); setImportStatus(null); }}
+            className="block mb-3 text-sm text-black"
+          />
+          <SlButton
+            variant="primary"
+            onClick={handleImportCsv}
+            loading={isImporting}
+            disabled={!csvFile}
+            style={{
+              '--sl-button-font-size': 'var(--sl-font-size-medium)',
+              '--sl-input-height-medium': '48px',
+              'background-color': '#e5e7eb',
+              'color': 'black',
+              'border': 'none',
+              'width': '15%'
+            }}
+          >
+            {isImporting ? 'Importing...' : 'Import CSV'}
+          </SlButton>
+          {importStatus && (
+            <SlAlert
+              className="mt-3"
+              variant={importStatus.type === 'error' ? 'danger' : importStatus.type}
+              open
+              closable
+              onSlAfterHide={() => setImportStatus(null)}
+            >
+              {importStatus.message}
+            </SlAlert>
+          )}
+        </div>
       </div>
     </div>
   );
