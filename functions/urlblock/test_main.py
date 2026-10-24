@@ -299,12 +299,19 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertFalse(self.simulate("evil-tradingview.com").body["found"])
         self.assertEqual(self.simulate("www.tradingview.com").body["rule"], "*.tradingview.com")
 
-    def test_legacy_wildcard_relationship_read_error(self):
-        # only the relationship listing fails: the domain read succeeds and finds the legacy match
+    def test_category_deployed_only_by_legacy_policy_uses_raw_entries(self):
+        # earlier versions deployed "steam.com" as is, without the "*.steam.com" this version adds
+        self.store.objects(*REL)["Games_rg_hg"] = {"category_name": "Games", "rule_group_id": "rg"}
+        self.assertFalse(self.simulate("store.steam.com").body["found"])
+        self.assertEqual(self.simulate("steam.com").body["rule"], "steam.com")
+
+        self.store.objects(*REL)["Games_rg2_hg"] = {"category_name": "Games", "rule_group_id": "rg2",
+                                                    "policy_id": "pol-1"}
+        self.assertEqual(self.simulate("store.steam.com").body["rule"], "*.steam.com")
+
+    def test_relationship_read_error(self):
         self.store.list_status_by_collection["relationship"] = 500
         self.assertEqual(self.simulate("evil-tradingview.com").code, 500)
-        listed = [c[1] for c in self.store.calls if c[0] == "list"]
-        self.assertEqual((listed[0], listed[-1]), ("domain", "relationship"))
 
     def test_unrelated_and_invalid(self):
         self.assertFalse(self.simulate("example.org").body["found"])
