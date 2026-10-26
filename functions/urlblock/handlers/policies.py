@@ -217,8 +217,9 @@ def _set_disabled_by_app(records, value, custom_storage, logger=None):
     """
     Store on a rule group's relationship records whether this app left its policy disabled,
     so a retried delete still knows the policy must be enforcing again if it fails.
+    Returns True when every record was written.
     """
-    _update_records(records, {'disabled_by_app': True if value else None}, custom_storage, logger)
+    return _update_records(records, {'disabled_by_app': True if value else None}, custom_storage, logger)
 
 
 def _store_policy_ref(records, policy, custom_storage, logger=None):
@@ -359,12 +360,18 @@ def _delete_policy(fw_policies, policy_id, operation_name, logger=None, reenable
     protected: one that was enabled, or one this app disabled earlier (`disabled_by_app`, from
     a previous attempt that could not enable it again). A policy disabled by someone else is
     neither disabled nor enabled. `policy` is the policy as read from Falcon (its `enabled`
-    state). `reenable_on_failure=False` ignores the state and never enables the policy again,
-    for rollbacks of a policy that was just created.
+    state); when it is not given, it is read first. `reenable_on_failure=False` ignores the
+    state and never enables the policy again, for rollbacks of a policy that was just created.
 
     Returns (deleted, error message, left_disabled): left_disabled is True when the policy was
     enforcing and is left disabled.
     """
+    if reenable_on_failure and policy is None:
+        policy, err = _read_policy(fw_policies, policy_id, f"{operation_name}_read_state", logger)
+        if err:
+            return False, err, False
+        if policy is None:
+            return True, None, False
     enabled_now = bool(policy.get('enabled')) if reenable_on_failure else True
     restore = reenable_on_failure and (enabled_now or disabled_by_app)
 
@@ -627,10 +634,15 @@ def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
             ok, err, left_disabled = _delete_policy(fw_policies, policy_id, "delete_policies", logger,
                                                     policy=policy, disabled_by_app=disabled_by_app)
             if not ok:
-                # Remember a policy left disabled, so a retry enables it again if the delete fails again
-                _set_disabled_by_app(records, left_disabled, custom_storage, logger)
-                outcome = ("It must be enabled again manually in Falcon, or the delete retried."
-                           if left_disabled else "Nothing was deleted.")
+                # Remember a policy left disabled, so a retry enables it again if the delete fails again.
+                # Without that marker a retry would not enable it: then only a manual enable helps.
+                marked = _set_disabled_by_app(records, left_disabled, custom_storage, logger)
+                if not left_disabled:
+                    outcome = "Nothing was deleted."
+                elif marked:
+                    outcome = "It must be enabled again manually in Falcon, or the delete retried."
+                else:
+                    outcome = "It must be enabled again manually in Falcon."
                 return Response(code=500, body={"error": f"Failed to delete policy: {err}. {outcome}"})
 
         ok, err = _deleted(mgmt.delete_rule_groups(ids=[rule_group_id]), "delete_rule_groups", logger)

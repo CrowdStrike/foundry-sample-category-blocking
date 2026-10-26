@@ -344,6 +344,37 @@ class PolicyUpdateTestCase(PolicyChangeBase):
         self.assertIn(call(action_name="enable", ids="pol-old"), self.pol.perform_action.call_args_list)
         self.assertNotIn("disabled_by_app", self.rel()["old1"])
 
+    def assert_legacy_update_changes_nothing(self):
+        self.make_legacy()
+        self.pol.query_combined_policies.return_value = falcon_ok([{"id": "pol-legacy", "name": "P", "enabled": True}])
+        resp = self.update(dict(self.update_body, platform=""))
+        self.assertEqual(resp.code, 500)
+        self.assertEqual(resp.body["error"], "Failed to record the current policy id. Nothing was changed.")
+        self.pol.create_policies.assert_not_called()
+        self.mgmt.create_rule_group.assert_not_called()
+        self.pol.perform_action.assert_not_called()
+        self.pol.delete_policies.assert_not_called()
+        self.mgmt.delete_rule_groups.assert_not_called()
+        self.assertEqual(set(self.rel()), {"old1", "old2", "other"})
+        self.assertNotIn("policy_id", self.rel()["old2"])
+        self.assertIn("old2", str(self.logger.error.call_args_list))
+
+    def test_update_legacy_policy_id_write_failure_changes_nothing(self):
+        self.store.fail_put.add("old2")
+        self.assert_legacy_update_changes_nothing()
+
+    def test_update_legacy_policy_id_write_exception_changes_nothing(self):
+        put = self.store.PutObjectByVersion
+
+        def failing_put(**kwargs):
+            if kwargs["object_key"] == "old2":
+                raise RuntimeError("connection reset")
+            return put(**kwargs)
+
+        self.store.PutObjectByVersion = failing_put
+        self.assert_legacy_update_changes_nothing()
+        self.assertIn("connection reset", str(self.logger.error.call_args_list))
+
     def test_update_missing_name_or_host_group_is_rejected(self):
         for field_name, body_key in (("policy_name", "policyName"), ("host_group_id", "hostGroupId")):
             stored = {key: self.rel()[key].pop(field_name) for key in ("old1", "old2")}
@@ -630,15 +661,43 @@ class PolicyDeleteTestCase(PolicyChangeBase):
             "It must be enabled again manually in Falcon, or the delete retried."))
         self.assertTrue(self.rel()["old1"]["disabled_by_app"])
 
-    def test_delete_left_disabled_marker_write_failure_is_logged(self):
+    def test_delete_left_disabled_without_marker_asks_for_manual_enable(self):
+        # a retry only enables the policy again if the marker was saved: without it, the
+        # response must not suggest retrying
         self.pol.delete_policies.return_value = {"status_code": 500}
         self.pol.perform_action.side_effect = lambda **k: OK if k["action_name"] == "disable" else {"status_code": 500}
-        self.store.fail_put.add("old1")
-        resp = self.delete({"rule_group_id": "rg-old"})
-        self.assertIn("left disabled", resp.body["error"])
-        self.assertNotIn("disabled_by_app", self.rel()["old1"])
-        self.assertTrue(self.rel()["old2"]["disabled_by_app"])
-        self.assertIn("old1", str(self.logger.error.call_args_list))
+        for failing in ({"old1"}, {"old1", "old2"}):
+            with self.subTest(failing=failing):
+                for key in ("old1", "old2"):
+                    self.rel()[key].pop("disabled_by_app", None)
+                self.store.fail_put = set(failing)
+                resp = self.delete({"rule_group_id": "rg-old"})
+                self.assertEqual(resp.code, 500)
+                self.assertTrue(resp.body["error"].endswith(
+                    "the policy was left disabled and could not be enabled again (CrowdStrike API returned status 500)."
+                    " It must be enabled again manually in Falcon."), resp.body["error"])
+                self.assertNotIn("retr", resp.body["error"])
+                self.assertNotIn("disabled_by_app", self.rel()["old1"])
+                self.assertIn("old1", str(self.logger.error.call_args_list))
+        self.mgmt.delete_rule_groups.assert_not_called()
+
+    def test_delete_policy_reads_the_policy_when_not_given(self):
+        for state, expected, actions in (
+                (falcon_ok([{"id": "pol-x", "enabled": True}]), (True, None, False), ["disable", "delete"]),
+                (falcon_ok([{"id": "pol-x", "enabled": False}]), (True, None, False), ["delete"]),
+                ({"status_code": 404, "body": {"resources": []}}, (True, None, False), []),
+                ({"status_code": 429, "body": {"errors": [{"message": "slow"}]}}, (False, "slow", False), [])):
+            with self.subTest(state=state):
+                self.pol.reset_mock()
+                self.pol.perform_action.return_value = OK
+                self.pol.delete_policies.return_value = OK
+                self.pol.get_policies.return_value = state
+                self.assertEqual(policies._delete_policy(  # pylint: disable=protected-access
+                    self.pol, "pol-x", "op", self.logger), expected)
+                self.pol.get_policies.assert_called_once_with(ids=["pol-x"])
+                done = [c.kwargs["action_name"] for c in self.pol.perform_action.call_args_list]
+                done += ["delete"] * self.pol.delete_policies.call_count
+                self.assertEqual(done, actions)
 
     def test_delete_retry_enables_again_a_policy_this_app_left_disabled(self):
         # first attempt: disable OK, delete 500, enable 500
