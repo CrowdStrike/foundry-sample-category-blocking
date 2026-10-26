@@ -20,6 +20,7 @@ The Category Blocking app allows you to:
 * Node.js (needed for React JS development).
 * npm 9+ or Yarn (needed for managing UI dependencies). See https://yarnpkg.com/getting-started for installation instructions.
 * FalconPy SDK (for CrowdStrike API integration). Install with pip install crowdstrike-falconpy
+* [pre-commit](https://pre-commit.com/) for secret scanning
 
 ## Getting Started
 
@@ -28,6 +29,13 @@ Clone this repository to your local system:
 ```shell
 git clone https://github.com/CrowdStrike/foundry-sample-url-filtering
 cd foundry-sample-url-filtering
+```
+
+### Set up secret scanning
+
+```shell
+pip install pre-commit
+pre-commit install
 ```
 
 ### Deployment Process
@@ -143,6 +151,35 @@ This application demonstrates advanced usage of Functions, Collections and UI Ex
 
 - Foundry documentation: [US-1](https://falcon.crowdstrike.com/documentation/category/c3d64B8e/falcon-foundry) | [US-2](https://falcon.us-2.crowdstrike.com/documentation/category/c3d64B8e/falcon-foundry) | [EU](https://falcon.eu-1.crowdstrike.com/documentation/category/c3d64B8e/falcon-foundry)
 - Foundry learning resources: [US-1](https://falcon.crowdstrike.com/foundry/learn) | [US-2](https://falcon.us-2.crowdstrike.com/foundry/learn) | [EU](https://falcon.eu-1.crowdstrike.com/foundry/learn)
+
+## Secret Scanning
+
+This repository enforces secret scanning on every commit via the [pre-commit](https://pre-commit.com/) framework using [betterleaks](https://github.com/betterleaks/betterleaks), a tool that detects secrets and credentials in source code before they are committed.
+
+### Setup
+
+```bash
+# Install pre-commit (run once)
+brew install pre-commit
+
+# Register the git hook (run once after cloning)
+pre-commit install
+```
+
+### How it works
+
+On each `git commit`, betterleaks scans all staged files for secrets and credentials.
+
+| Scenario | Result |
+|----------|--------|
+| Secret detected in staged files | Commit blocked |
+| No secrets found | Commit allowed |
+| pre-commit not installed | No hook runs (secrets not scanned) |
+
+**Bypass (false positives only):**
+```bash
+git commit --no-verify
+```
 
 ---
 
