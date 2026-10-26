@@ -373,6 +373,14 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.store.list_status_by_collection["relationship"] = 500
         self.assertEqual(self.simulate("evil-tradingview.com").code, 500)
 
+    def test_failed_category_read_is_an_error_instead_of_not_blocked(self):
+        self.store.fail_get.add("Games")
+        resp = self.simulate("example.org")
+        self.assertEqual(resp.code, 500)
+        self.assertEqual(resp.body["error"], "Failed to simulate: 1 categories could not be read")
+        # a category that blocks the name is still reported, whatever could not be read
+        self.assertEqual(self.simulate("google.com").body["category"], "Search")
+
     def test_unrelated_and_invalid(self):
         self.assertFalse(self.simulate("example.org").body["found"])
         self.assertEqual(self.simulate("not a domain").code, 400)

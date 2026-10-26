@@ -181,6 +181,19 @@ class PolicyTestCase(PolicyBase):
         resp = self.create()
         self.assertEqual((resp.code, resp.body["relationsWritten"]), (200, 0))
         self.pol.delete_policies.assert_not_called()
+        self.assertEqual(resp.body["warnings"], [
+            "No relationship record could be written: policy pol-new is in Falcon, but this app does not "
+            "track it, so it is not listed in Firewall Rules. Manage or delete it in Falcon."])
+
+    def test_create_rule_reports_categories_left_untracked(self):
+        body = dict(self.create_body, categories={"Games": "steam.com", "News": "bbc.com"})
+        self.store.fail_put.add("News_rg-new_hg1")
+        resp = policies.create_rule(req(body), None, self.logger)
+        self.assertEqual((resp.code, resp.body["relationsWritten"]), (200, 1))
+        self.assertEqual(resp.body["warnings"], [
+            "1 of 2 relationship records could not be written: those categories are blocked "
+            "but not listed for this policy in Firewall Rules."])
+        self.assertEqual(self.create().body["warnings"], [])
 
 
 
@@ -375,6 +388,15 @@ class PolicyUpdateTestCase(PolicyChangeBase):
         self.assert_legacy_update_changes_nothing()
         self.assertIn("connection reset", str(self.logger.error.call_args_list))
 
+    def test_update_reports_new_policy_left_untracked(self):
+        self.store.fail_put.add("Games_rg-new_hg1")
+        resp = self.update()
+        self.assertEqual(resp.code, 200)
+        self.assertIn("No relationship record could be written: policy pol-new is in Falcon, but this app does not "
+                      "track it, so it is not listed in Firewall Rules. Manage or delete it in Falcon.",
+                      resp.body["warnings"])
+        self.assertEqual(set(self.rel()), {"other"})
+
     def test_update_missing_name_or_host_group_is_rejected(self):
         for field_name, body_key in (("policy_name", "policyName"), ("host_group_id", "hostGroupId")):
             stored = {key: self.rel()[key].pop(field_name) for key in ("old1", "old2")}
@@ -466,6 +488,47 @@ class PolicyUpdateTestCase(PolicyChangeBase):
         resp = self.update(dict(self.update_body, platform="windows"))
         self.assertEqual(resp.code, 400)
         self.pol.create_policies.assert_not_called()
+
+class PolicyUpdateMarkerTestCase(PolicyChangeBase):
+    # --- update-policy: the disabled_by_app marker of the previous policy -------
+    def mark_disabled_by_app(self):
+        """The policy is disabled because an earlier delete of this app could not enable it again."""
+        for key in ("old1", "old2"):
+            self.rel()[key]["disabled_by_app"] = True
+        self.pol.get_policies.return_value = falcon_ok([{"id": "pol-old", "enabled": False}])
+
+    stale_marker = ("The policy's records still say this app disabled it (disabled_by_app could not be cleared), "
+            "so a later failed delete could enable it again even if it has been disabled in Falcon.")
+
+    def test_update_rollback_reports_marker_that_could_not_be_cleared(self):
+        self.mark_disabled_by_app()
+        self.fail_old_delete()
+        self.store.fail_put.add("old1")
+        resp = self.update()
+        self.assertEqual(resp.code, 500)
+        self.assertTrue(resp.body["error"].endswith("Rolled back. " + self.stale_marker), resp.body["error"])
+        self.assertIn(call(action_name="enable", ids="pol-old"), self.pol.perform_action.call_args_list)
+        self.assertTrue(self.rel()["old1"]["disabled_by_app"])
+        self.assertNotIn("disabled_by_app", self.rel()["old2"])
+
+    def test_update_kept_old_policy_reports_marker_that_could_not_be_cleared(self):
+        self.mark_disabled_by_app()
+        self.fail_old_delete()
+        self.pol.perform_action.side_effect = lambda **k: (
+            {"status_code": 500} if (k["action_name"], k["ids"]) == ("enable", "pol-old") else OK)
+        self.store.fail_put.add("old1")
+        resp = self.update()
+        self.assertEqual(resp.code, 200)
+        self.assertIn(self.stale_marker, resp.body["warnings"])
+        self.assertTrue(self.rel()["old1"]["disabled_by_app"])
+
+    def test_update_does_not_warn_when_the_marker_is_cleared(self):
+        self.mark_disabled_by_app()
+        self.fail_old_delete()
+        resp = self.update()
+        self.assertNotIn("disabled_by_app", resp.body["error"])
+        self.assertNotIn("disabled_by_app", self.rel()["old1"])
+
 
 class PolicyLegacyMatchTestCase(PolicyChangeBase):
     # --- legacy records: resolving the policy by name ------------------------
@@ -753,8 +816,38 @@ class PolicyDeleteTestCase(PolicyChangeBase):
 
     def test_delete_rule_group_failure_keeps_relations_for_retry(self):
         self.mgmt.delete_rule_groups.return_value = {"status_code": 500}
-        self.assertEqual(self.delete({"rule_group_id": "rg-old"}).code, 500)
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual(resp.code, 500)
+        self.assertEqual(resp.body["error"], "Policy deleted, but the rule group could not be deleted: "
+                                             "CrowdStrike API returned status 500. Please retry.")
         self.assertIn("old1", self.rel())
+
+    def test_delete_rule_group_failure_without_a_policy_mentions_none(self):
+        self.pol.get_policies.return_value = {"status_code": 404, "body": {"resources": []}}
+        self.mgmt.delete_rule_groups.return_value = {"status_code": 500}
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual(resp.code, 500)
+        self.assertEqual(resp.body["error"], "No policy for this rule group was found in Falcon, and the rule group "
+                                             "could not be deleted: CrowdStrike API returned status 500. "
+                                             "Nothing was deleted; please retry.")
+        self.pol.delete_policies.assert_not_called()
+        self.assertEqual(set(self.rel()), {"old1", "old2", "other"})
+
+    def test_delete_failure_reports_marker_that_could_not_be_cleared(self):
+        # the policy this app left disabled is enabled again, but the marker stays
+        for key in ("old1", "old2"):
+            self.rel()[key]["disabled_by_app"] = True
+        self.pol.get_policies.return_value = falcon_ok([{"id": "pol-old", "enabled": False}])
+        self.pol.delete_policies.return_value = {"status_code": 500}
+        self.store.fail_put.add("old1")
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual(resp.code, 500)
+        self.assertTrue(resp.body["error"].endswith(
+            "Nothing was deleted. The policy's records still say this app disabled it (disabled_by_app could not "
+            "be cleared), so a later failed delete could enable it again even if it has been disabled in Falcon."),
+            resp.body["error"])
+        self.assertEqual(self.pol.perform_action.call_args_list, [call(action_name="enable", ids="pol-old")])
+        self.assertTrue(self.rel()["old1"]["disabled_by_app"])
 
     def test_delete_retry_treats_already_deleted_policy_as_gone(self):
         self.pol.perform_action.return_value = {"status_code": 404}
@@ -881,7 +974,15 @@ class PolicyDeleteTestCase(PolicyChangeBase):
 
     def test_delete_counts_only_successful_deletes(self):
         self.store.fail_delete.add("old2")
-        self.assertEqual(self.delete({"rule_group_id": "rg-old"}).body["relationsDeleted"], 1)
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual(resp.body["relationsDeleted"], 1)
+        self.assertEqual(resp.body["warnings"], [
+            "1 relationship records could not be removed, so this rule group is still listed in Firewall Rules: "
+            "delete it again to remove them."])
+        self.assertIn("old2", self.rel())
+        self.pol.query_combined_policies.return_value = falcon_ok([])  # "other" is legacy; its policy is gone
+        resp = self.delete({"rule_group_id": "rg-other"})
+        self.assertEqual((resp.code, resp.body["warnings"]), (200, []))
 
     def test_delete_policy_requires_rule_group(self):
         self.assertEqual(self.delete({}).code, 400)
@@ -999,6 +1100,14 @@ class PolicyQueryTestCase(PolicyBase):
         self.assertEqual([len(c.kwargs["ids"]) for c in self.pol.get_policies.call_args_list], [100, 50])
         self.assertEqual(self.mgmt.get_policy_containers.call_count, 2)
         self.assertEqual(resp.body["healthy_count"], 150)
+
+    def test_health_check_relationship_read_failure_is_an_error(self):
+        self.store.data[REL] = {"a": {"policy_id": "p1", "policy_name": "A"}, "b": {"policy_id": "p2", "policy_name": "B"}}
+        self.store.fail_get.add("b")
+        resp = policies.health_check(req(), None, self.logger)
+        self.assertEqual(resp.code, 500)
+        self.assertEqual(resp.body["error"], "Failed to read relationships: 1 records could not be read")
+        self.pol.get_policies.assert_not_called()
 
     def test_health_check_keeps_found_policies_on_partial_404(self):
         self.store.data[REL] = {"a": {"policy_id": "p1", "policy_name": "A"}, "b": {"policy_id": "gone", "policy_name": "B"}}

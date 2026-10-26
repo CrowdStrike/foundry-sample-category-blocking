@@ -213,6 +213,16 @@ def _update_records(records, changes, custom_storage, logger=None):
     return all_written
 
 
+STALE_MARKER_WARNING = ("The policy's records still say this app disabled it (disabled_by_app could not be cleared), "
+                        "so a later failed delete could enable it again even if it has been disabled in Falcon.")
+
+
+def _untracked_policy_warning(policy_id):
+    """Warning for a policy whose relationship records could not be written at all."""
+    return (f"No relationship record could be written: policy {policy_id} is in Falcon, but this app does not "
+            "track it, so it is not listed in Firewall Rules. Manage or delete it in Falcon.")
+
+
 def _set_disabled_by_app(records, value, custom_storage, logger=None):
     """
     Store on a rule group's relationship records whether this app left its policy disabled,
@@ -530,13 +540,19 @@ def create_rule(request: Request, _: dict, logger: Logger) -> Response:
         if error:
             return error
 
-        # Relationship write failures are logged but do not roll back Falcon resources
+        # Relationship write failures do not roll back Falcon resources, but are reported
         write_result = _write_relationships(
             list(categories.keys()), rule_group_id, host_group_id, host_group_name,
             policy_name, platform, whitelist_raw, username, policy_id, custom_storage, logger,
             created_by_source=username_source)
-        if write_result["error_count"]:
-            logger.warning(f"create-rule: {write_result['error_count']} relationship writes failed")
+        warnings = []
+        if write_result["error_count"] and not write_result["success_count"]:
+            warnings.append(_untracked_policy_warning(policy_id))
+        elif write_result["error_count"]:
+            warnings.append(f"{write_result['error_count']} of {len(categories)} relationship records could not be "
+                            "written: those categories are blocked but not listed for this policy in Firewall Rules.")
+        for warning in warnings:
+            logger.warning(f"create-rule: {warning}")
 
         logger.info(f"Create-rule completed: {policy_name}, policy={policy_id}, rg={rule_group_id}")
         return Response(code=200, body={
@@ -548,6 +564,7 @@ def create_rule(request: Request, _: dict, logger: Logger) -> Response:
             "relationsWritten": write_result["success_count"],
             "createdBy": username,
             "createdBySource": username_source,
+            "warnings": warnings,
         })
 
     except Exception:
@@ -638,7 +655,7 @@ def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
                 # Without that marker a retry would not enable it: then only a manual enable helps.
                 marked = _set_disabled_by_app(records, left_disabled, custom_storage, logger)
                 if not left_disabled:
-                    outcome = "Nothing was deleted."
+                    outcome = "Nothing was deleted." if marked else f"Nothing was deleted. {STALE_MARKER_WARNING}"
                 elif marked:
                     outcome = "It must be enabled again manually in Falcon, or the delete retried."
                 else:
@@ -647,13 +664,22 @@ def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
 
         ok, err = _deleted(mgmt.delete_rule_groups(ids=[rule_group_id]), "delete_rule_groups", logger)
         if not ok:
-            return Response(code=500, body={
-                "error": f"Policy deleted, but the rule group could not be deleted: {err}. Please retry."})
+            if policy_id:
+                message = f"Policy deleted, but the rule group could not be deleted: {err}. Please retry."
+            else:
+                message = (f"No policy for this rule group was found in Falcon, and the rule group could not be "
+                           f"deleted: {err}. Nothing was deleted; please retry.")
+            return Response(code=500, body={"error": message})
 
         deleted = _delete_relationship_records(records, custom_storage, logger)
+        # (c) a retry removes what is left: the policy and rule group are gone (404)
+        warnings = []
+        if deleted < len(records):
+            warnings.append(f"{len(records) - deleted} relationship records could not be removed, so this rule group "
+                            "is still listed in Firewall Rules: delete it again to remove them.")
 
         logger.info(f"Delete-policy completed: RG={rule_group_id}, Policy={policy_id}, relations deleted={deleted}")
-        return Response(code=200, body={"success": True, "relationsDeleted": deleted})
+        return Response(code=200, body={"success": True, "relationsDeleted": deleted, "warnings": warnings})
     except Exception:
         logger.error(traceback.format_exc())
         return Response(code=500, body={"error": "Failed to delete policy"})
@@ -758,11 +784,14 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
         if old_policy_id:
             ok, err, left_disabled = _delete_policy(fw_policies, old_policy_id, "delete_old_policy", logger,
                                                     policy=old_policy, disabled_by_app=disabled_by_app)
+            marker_cleared = True
             if not ok:
                 # Either it is enforcing again, or the replacement enforces for it: never enable it later
-                _set_disabled_by_app(old_records, False, custom_storage, logger)
+                marker_cleared = _set_disabled_by_app(old_records, False, custom_storage, logger)
             if not ok and not left_disabled:
                 outcome = _rollback(mgmt, fw_policies, new_policy_id, new_rg_id, logger)
+                if not marker_cleared:
+                    outcome = f"{outcome} {STALE_MARKER_WARNING}"
                 return Response(code=500, body={
                     "error": f"Failed to delete the current policy: {err}. The update was not applied. {outcome}"})
             if not ok:
@@ -771,6 +800,8 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
                 old_policy_kept = True
                 warnings.append(f"The previous policy {old_policy_id} could not be deleted: {err}. "
                                 "The new policy is enforcing; delete the previous one from Firewall Rules.")
+                if not marker_cleared:
+                    warnings.append(STALE_MARKER_WARNING)
 
         # Phase 3: give the new policy its final name and delete the old rule group
         # (both stay with the old policy while it still exists)
@@ -795,7 +826,9 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
             list(categories.keys()), new_rg_id, host_group_id, host_group_name,
             final_name, platform, whitelist_raw, username, new_policy_id, custom_storage, logger,
             created_by_source=username_source, rule_group_name=f"{policy_name}_RuleGroup")
-        if write_result["error_count"]:
+        if write_result["error_count"] and not write_result["success_count"]:
+            warnings.append(_untracked_policy_warning(new_policy_id))
+        elif write_result["error_count"]:
             warnings.append(f"{write_result['error_count']} relationship records could not be written")
         if not old_policy_kept:
             deleted_count = _delete_relationship_records(old_records, custom_storage, logger)
@@ -903,6 +936,9 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
                 if rule:
                     return _blocked(item, rule)
 
+        # "Not blocked" would be wrong if one of the unread categories blocks the name
+        if result["failed"]:
+            return Response(code=500, body={"error": f"Failed to simulate: {result['failed']} categories could not be read"})
         return Response(code=200, body={"found": False, "category": None, "message": "Not blocked",
                                         "pagination": result["pagination"]})
     except Exception:
@@ -983,6 +1019,10 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
         result = read_all_objects(custom_storage, "relationship", COLLECTION_RELATION_VER, logger=logger)
         if "error" in result:
             return Response(code=500, body={"error": "Failed to read relationships"})
+        # A policy whose records could not be read would be missing from the report
+        if result["failed"]:
+            return Response(code=500, body={
+                "error": f"Failed to read relationships: {result['failed']} records could not be read"})
 
         # One entry per policy: keyed by policy_id, or by name for legacy records without it
         unique_policies = {}
