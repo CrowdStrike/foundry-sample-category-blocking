@@ -143,21 +143,16 @@ def _read_relationships(custom_storage, wanted, logger=None):
 
 def _relationship_records(rule_group_id, custom_storage, logger=None):
     """
-    Relationship records of a rule group: (records, None) or (None, error message). A partial
-    read is an error: acting on some of a rule group's records would leave the others behind.
+    Relationship records of a rule group: (records, None) or (None, error message). Only keys
+    that name this rule group (or have another shape) are read, so an unreadable record of
+    another rule group never blocks the operation; a failed read of one of these keys is an
+    error, since acting on some of a rule group's records would leave the others behind.
     """
-    result = read_all_objects(custom_storage, "relationship", COLLECTION_RELATION_VER, logger=logger)
-    if "error" in result:
-        if logger:
-            logger.error(f"Could not list relationships: {result['error']}")
-        return None, "Failed to read relationships"
-    if result['failed'] or result['pagination']['truncated']:
-        if logger:
-            logger.error(f"Relationships read partially: {result['failed']} failed, "
-                         f"truncated={result['pagination']['truncated']}")
-        return None, "Some relationships could not be read"
-    return [item for item in result['resources']
-            if isinstance(item, dict) and item.get('rule_group_id') == rule_group_id], None
+    records, err = _read_relationships(
+        custom_storage, lambda parts: parts is None or parts[1] == rule_group_id, logger)
+    if err:
+        return None, err
+    return [r for r in records if r.get('rule_group_id') == rule_group_id], None
 
 
 def _delete_relationship_records(records, custom_storage, logger=None):

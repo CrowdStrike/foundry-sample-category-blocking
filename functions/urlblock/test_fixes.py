@@ -779,6 +779,47 @@ class PolicyDeleteTestCase(PolicyChangeBase):
         self.mgmt.delete_rule_groups.assert_not_called()
         self.assertEqual(set(self.rel()), {"old1", "old2", "other"})
 
+    def add_record(self, key, rule_group_id):
+        self.rel()[key] = {"category_name": "News", "rule_group_id": rule_group_id, "host_group_id": "hg9",
+                           "policy_name": "R"}
+
+    def test_failed_read_of_another_rule_group_record_is_ignored(self):
+        # the key names its rule group, so a record of rg-x is never read for rg-old
+        self.add_record("News_rg-x_hg9", "rg-x")
+        self.store.fail_get.add("News_rg-x_hg9")
+        self.assertEqual(self.update().code, 200)
+        self.assertEqual(self.delete({"rule_group_id": "rg-new"}).code, 200)
+        self.assertNotIn(("get", "relationship", "News_rg-x_hg9"), self.store.calls)
+        self.assertIn("News_rg-x_hg9", self.rel())
+
+    def test_failed_read_of_another_rule_group_record_does_not_block_legacy_records(self):
+        self.make_legacy()
+        self.pol.query_combined_policies.return_value = falcon_ok([{"id": "pol-legacy", "name": "P", "enabled": True}])
+        self.add_record("News_rg-x_hg9", "rg-x")
+        self.store.fail_get.add("News_rg-x_hg9")
+        self.assertEqual(self.delete({"rule_group_id": "rg-old"}).code, 200)
+        self.pol.delete_policies.assert_called_once_with(ids="pol-legacy")
+
+    def test_failed_read_of_an_own_record_changes_nothing(self):
+        self.add_record("News_rg-old_hg1", "rg-old")
+        self.store.fail_get.add("News_rg-old_hg1")
+        for resp in (self.delete({"rule_group_id": "rg-old"}), self.update()):
+            self.assertEqual(resp.code, 500)
+            self.assertIn("could not be read. Nothing was", resp.body["error"])
+        self.pol.create_policies.assert_not_called()
+        self.assertEqual(self.touched_policies(), set())
+        self.mgmt.delete_rule_groups.assert_not_called()
+        self.assertEqual(set(self.rel()), {"old1", "old2", "other", "News_rg-old_hg1"})
+
+    def test_truncated_relationship_listing_changes_nothing(self):
+        with patch.object(policies, "RELATIONSHIP_PAGE_SIZE", 2), patch.object(policies, "RELATIONSHIP_MAX_PAGES", 1):
+            for resp in (self.delete({"rule_group_id": "rg-old"}), self.update()):
+                self.assertEqual(resp.code, 500)
+                self.assertIn("could not all be listed", resp.body["error"])
+        self.pol.create_policies.assert_not_called()
+        self.assertEqual(self.touched_policies(), set())
+        self.assertEqual(set(self.rel()), {"old1", "old2", "other"})
+
     def test_delete_counts_only_successful_deletes(self):
         self.store.fail_delete.add("old2")
         self.assertEqual(self.delete({"rule_group_id": "rg-old"}).body["relationsDeleted"], 1)
