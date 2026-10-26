@@ -270,6 +270,31 @@ def delete_object(custom_storage, collection_name: str, collection_version: str,
     return isinstance(resp, dict) and resp.get("status_code") in (200, 204)
 
 
+def read_objects(custom_storage, collection_name: str, collection_version: str, keys,
+                 max_workers: int = 10, logger=None):
+    """
+    Read the given objects in parallel (each gets its key in `_key`).
+    Returns (objects, failed keys); an object that no longer exists is skipped.
+    """
+    def _fetch(key):
+        obj = get_object(custom_storage, collection_name, collection_version, key)
+        return dict(obj, _key=key) if isinstance(obj, dict) else None
+
+    objects, failed = [], []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for key, future in [(k, executor.submit(_fetch, k)) for k in keys]:
+            try:
+                obj = future.result()
+            except Exception as e:
+                failed.append(key)
+                if logger:
+                    logger.warning(f"Could not read {collection_name}/{key}: {e}")
+                continue
+            if obj is not None:
+                objects.append(obj)
+    return objects, failed
+
+
 # pylint: disable-next=too-many-locals
 def read_all_objects(custom_storage, collection_name: str, collection_version: str,
                      page_size: int = 200, max_pages: int = 50, max_workers: int = 10,

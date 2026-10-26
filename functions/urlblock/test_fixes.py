@@ -1,5 +1,5 @@
 """Tests for policy lifecycle (create/update/delete/list/health), helpers and analytics."""
-# pylint: disable=missing-class-docstring,missing-function-docstring,invalid-name
+# pylint: disable=missing-class-docstring,missing-function-docstring,invalid-name,too-many-lines
 
 import unittest
 from datetime import datetime, timezone
@@ -140,6 +140,7 @@ class PolicyTestCase(PolicyBase):
         record = self.rel()["Games_rg-new_hg1"]
         self.assertEqual((record["policy_id"], record["created_by"], record["created_by_source"]),
                          ("pol-new", "ana", "context"))
+        self.assertEqual(record["rule_format"], "sanitized")
 
     def test_create_rule_falls_back_to_ui_user_without_exposing_context(self):
         resp = self.create(context={"cid": "c1", "access_token": "secret"})
@@ -548,6 +549,44 @@ class PolicyLegacyMatchTestCase(PolicyChangeBase):
             {"id": "pol-win", "name": "P", "platform_name": "Windows", "enabled": True}])
         self.assertEqual(self.delete({"rule_group_id": "rg-old"}).code, 200)
         self.pol.delete_policies.assert_called_once_with(ids="pol-win")
+
+
+class LegacyRuleFormatTestCase(PolicyChangeBase):
+    """A legacy policy deployed the raw entries until a replacement exists (rule_format)."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_legacy()
+        del self.rel()["other"]  # another legacy Games record would keep the raw entries deployed
+        self.pol.query_combined_policies.return_value = falcon_ok(
+            [{"id": "pol-legacy", "name": "P", "platform_name": "Windows", "enabled": True}])
+        self.store.objects("domain", "v2.0")["Games"] = {"category": "Games", "domain": "*steam.com"}
+
+    def simulate(self, fqdn):
+        return policies.simulate_policy(req(query={"fqdn": fqdn}), None, self.logger).body
+
+    def test_failed_legacy_delete_keeps_simulating_the_raw_entries(self):
+        self.assertEqual(self.simulate("mysteam.com")["rule"], "*steam.com")
+        self.pol.delete_policies.return_value = {"status_code": 403, "body": {"errors": [{"message": "forbidden"}]}}
+        resp = policies.delete_policy(req({"rule_group_id": "rg-old"}), None, self.logger)
+        self.assertTrue(resp.body["error"].endswith("Nothing was deleted."))
+        self.assertEqual(self.rel()["old1"]["policy_id"], "pol-legacy")  # the reference is kept
+        self.assertNotIn("rule_format", self.rel()["old1"])
+        self.assertEqual(self.simulate("mysteam.com")["rule"], "*steam.com")
+
+    def test_rolled_back_legacy_update_keeps_simulating_the_raw_entries(self):
+        self.pol.delete_policies.side_effect = lambda **k: (
+            {"status_code": 403, "body": {"errors": [{"message": "forbidden"}]}} if k["ids"] == "pol-legacy" else OK)
+        resp = self.update(dict(self.update_body, platform=""))
+        self.assertIn("Rolled back.", resp.body["error"])
+        self.assertNotIn("Games_rg-new_hg1", self.rel())
+        self.assertEqual(self.simulate("mysteam.com")["rule"], "*steam.com")
+
+    def test_successful_update_marks_the_new_records(self):
+        self.assertEqual(self.update(dict(self.update_body, platform="")).code, 200)
+        self.assertEqual(set(self.rel()), {"Games_rg-new_hg1"})
+        self.assertEqual(self.rel()["Games_rg-new_hg1"]["rule_format"], "sanitized")
+        self.assertFalse(self.simulate("mysteam.com")["found"])  # the replacement drops "*steam.com"
 
 
 class PolicyDeleteTestCase(PolicyChangeBase):

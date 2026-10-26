@@ -16,11 +16,20 @@ from falconpy import FirewallManagement, FirewallPolicies, CustomStorage, HostGr
 
 from app_core import FUNC, get_client, COLLECTION_DOMAIN_VER, COLLECTION_RELATION_VER
 from app_utils import (
-    _sanitize_url_list, _build_rule, read_all_objects, delete_object, query_param,
-    relationship_key, validate_fqdn, _validate_falcon_response, resolve_creator,
+    _sanitize_url_list, _build_rule, read_all_objects, read_objects, list_object_keys, delete_object,
+    query_param, category_key, relationship_key, validate_fqdn, _validate_falcon_response, resolve_creator,
 )
 
 PLATFORM_NAMES = {'windows': 'Windows', 'mac': 'Mac', 'linux': 'Linux'}
+
+# Records written with a policy whose rule was built through _sanitize_url_list. Records without
+# it come from earlier versions, whose rules hold the raw category entries.
+RULE_FORMAT_SANITIZED = "sanitized"
+
+# Relationship keys are listed (one call per page) before reading only the records needed. The cap
+# keeps the listing well within the function's 300 s limit (max_exec_duration_seconds).
+RELATIONSHIP_PAGE_SIZE = 200
+RELATIONSHIP_MAX_PAGES = 100  # 20,000 keys
 
 
 @FUNC.handler(method='GET', path='/urlblock')
@@ -69,7 +78,9 @@ def _write_relationships(categories_list, rule_group_id, host_group_id, host_gro
             "whitelist": whitelist,
             "created_at": datetime.now(pytz.UTC).isoformat(),
             "created_by": username,
-            "created_by_source": created_by_source or "none"
+            "created_by_source": created_by_source or "none",
+            # only written once the policy exists, with its rule built by _build_rules_list
+            "rule_format": RULE_FORMAT_SANITIZED,
         }
         try:
             resp = custom_storage.PutObjectByVersion(
@@ -93,6 +104,41 @@ def _write_relationships(categories_list, rule_group_id, host_group_id, host_gro
 
     success_count = sum(results)
     return {"success_count": success_count, "error_count": len(results) - success_count}
+
+
+def _relationship_key_parts(key):
+    """
+    (category, rule group id, host group id) of a relationship key, or None for a key of another
+    shape. Keys are <category>_<rule group id>_<host group id>: relationship_key() here, and the
+    raw category name in earlier versions. Falcon ids contain no '_', so the split is unambiguous.
+    """
+    parts = key.rsplit('_', 2)
+    return tuple(parts) if len(parts) == 3 and all(parts) else None
+
+
+def _read_relationships(custom_storage, wanted, logger=None):
+    """
+    The relationship records whose key `wanted(_relationship_key_parts(key))` selects: every key
+    is listed, and only the selected ones are read. Returns (records, None) or (None, error
+    message): a truncated listing or a failed read of a selected key is an error, since the
+    missing record cannot be ruled out.
+    """
+    listing = list_object_keys(custom_storage, "relationship", COLLECTION_RELATION_VER,
+                               page_size=RELATIONSHIP_PAGE_SIZE, max_pages=RELATIONSHIP_MAX_PAGES)
+    if "error" in listing:
+        if logger:
+            logger.error(f"Could not list relationships: {listing['error']}")
+        return None, "Failed to read relationships"
+    if listing["pagination"]["truncated"]:
+        limit = RELATIONSHIP_PAGE_SIZE * RELATIONSHIP_MAX_PAGES
+        return None, f"There are more than {limit} relationships, so they could not all be listed"
+    keys = [k for k in listing["keys"] if wanted(_relationship_key_parts(k))]
+    records, failed = read_objects(custom_storage, "relationship", COLLECTION_RELATION_VER, keys, logger=logger)
+    if failed:
+        if logger:
+            logger.error(f"Could not read relationships {failed}")
+        return None, "Some relationships could not be read"
+    return records, None
 
 
 def _relationship_records(rule_group_id, custom_storage, logger=None):
@@ -777,7 +823,7 @@ def _blocking_candidates(fqdn: str) -> list:
 
 
 @FUNC.handler(method='GET', path='/simulate-policy')
-# pylint: disable-next=too-many-return-statements
+# pylint: disable-next=too-many-return-statements,too-many-locals
 def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
     """Report whether a given FQDN would be blocked by any stored category."""
     try:
@@ -790,50 +836,65 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
         custom_storage = get_client(CustomStorage)
         candidates = _blocking_candidates(fqdn)
 
-        # Policies deployed by earlier versions (relationship records without policy_id) were
-        # built from the raw entries, while this version deploys them through _sanitize_url_list
-        relationships = read_all_objects(custom_storage, "relationship", COLLECTION_RELATION_VER, logger=logger)
-        if "error" in relationships:
-            return Response(code=500, body={"error": "Failed to simulate"})
-        current_categories, legacy_categories = set(), set()
-        for record in relationships["resources"]:
-            if isinstance(record, dict) and record.get('category_name'):
-                (current_categories if record.get('policy_id') else legacy_categories).add(record['category_name'])
-        legacy_only = legacy_categories - current_categories
-
         def _current_entry(item):
-            # _sanitize_url_list adds *.domain for every plain domain and drops dotless wildcards
+            # As this version deploys it: _sanitize_url_list adds *.domain for every plain domain
+            # and drops dotless wildcards
             deployed = set(_sanitize_url_list(item.get('domain', ''), separator=';'))
             return next((c for c in candidates if c in deployed), None)
 
         def _legacy_entry(item):
-            # The raw entries: no *.domain added, and wildcards without a dot (*example.com),
-            # which Falcon matches against any name ending in "example.com"
+            # As earlier versions deployed it: the raw entries, including wildcards without a dot
+            # (*example.com), which Falcon matches against any name ending in "example.com"
             stored = {d.strip().lower() for d in item.get('domain', '').split(';') if d.strip()}
             return next((c for c in candidates if c in stored), None) or next(
                 (d for d in sorted(stored)
                  if d.startswith('*') and not d.startswith('*.') and len(d) > 1 and fqdn.endswith(d[1:])), None)
 
-        def _matching_entry(item):
-            # Categories not deployed yet are checked as this version would deploy them
-            category = item.get('category')
-            match = None if category in legacy_only else _current_entry(item)
-            if match is None and category in legacy_categories:
-                match = _legacy_entry(item)
-            return match
+        def _same_either_way(item):
+            entry = _current_entry(item)
+            return entry is not None and entry == _legacy_entry(item)
 
-        # Early return: stop paging as soon as the domain is found
+        # Early return: stop paging at a category that blocks the name however it was deployed
         result = read_all_objects(custom_storage, 'domain', COLLECTION_DOMAIN_VER,
-                                  stop_when=lambda item: _matching_entry(item) is not None, logger=logger)
+                                  stop_when=_same_either_way, logger=logger)
         if "error" in result:
             return Response(code=500, body={"error": "Failed to simulate"})
 
-        item = result["match"]
-        if item:
-            return Response(code=200, body={"found": True, "category": item.get('category'),
-                                            "rule": _matching_entry(item),
+        def _blocked(item, rule):
+            return Response(code=200, body={"found": True, "category": item.get('category'), "rule": rule,
                                             "message": f"Blocked by {item.get('category')}",
                                             "pagination": result["pagination"]})
+
+        if result["match"]:
+            return _blocked(result["match"], _current_entry(result["match"]))
+
+        # Categories whose raw and sanitized entries match differently: the rules deployed for
+        # them decide, so only their relationship records are read
+        pending = []
+        for item in result["resources"]:
+            current, legacy = _current_entry(item), _legacy_entry(item)
+            if item.get('category') and current != legacy:
+                pending.append((item, current, legacy))
+        if pending:
+            names = {item['category'] for item, _, _ in pending}
+            key_names = names | {category_key(name) for name in names}
+            records, err = _read_relationships(
+                custom_storage, lambda parts: parts is None or parts[0] in key_names, logger)
+            if err:
+                return Response(code=500, body={"error": f"Failed to simulate: {err}"})
+            formats = {}  # category -> formats of the rules deployed for it
+            for record in records:
+                if record.get('category_name') in names:
+                    formats.setdefault(record['category_name'], set()).add(
+                        'sanitized' if record.get('rule_format') == RULE_FORMAT_SANITIZED else 'raw')
+            for item, current, legacy in pending:
+                deployed = formats.get(item['category'], set())
+                # A category not deployed yet is checked as this version would deploy it
+                rule = current if not deployed or 'sanitized' in deployed else None
+                if rule is None and 'raw' in deployed:
+                    rule = legacy
+                if rule:
+                    return _blocked(item, rule)
 
         return Response(code=200, body={"found": False, "category": None, "message": "Not blocked",
                                         "pagination": result["pagination"]})

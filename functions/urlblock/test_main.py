@@ -279,12 +279,21 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertEqual((resp.body["category"], resp.body["rule"]), ("Games", "*.steam.com"))
         self.assertFalse(self.simulate("notsteam.com").body["found"])
 
+    def deploy(self, category, sanitized, rule_group="rg"):
+        """A relationship record, as written by this version (rule_format) or an earlier one."""
+        record = {"category_name": category, "rule_group_id": rule_group, "host_group_id": "hg",
+                  "policy_id": "pol-1"}  # a legacy record gets a policy_id once resolved by name
+        if sanitized:
+            record["rule_format"] = "sanitized"
+        key = f"{category.replace(' ', '_')}_{rule_group}_hg"
+        self.store.objects(*REL)[key] = record
+        return key
+
     def deploy_trading(self, policy_id):
-        """A relationship record for Trading, as written by this version (policy_id) or an earlier one."""
-        record = {"category_name": "Trading", "rule_group_id": "rg"}
-        if policy_id:
-            record["policy_id"] = policy_id
-        self.store.objects(*REL)["Trading_rg_hg"] = record
+        self.deploy("Trading", sanitized=bool(policy_id))
+
+    def relationship_listed(self):
+        return any(c[:2] == ("list", "relationship") for c in self.store.calls)
 
     def test_legacy_wildcard_without_dot_matches_names_in_legacy_policies(self):
         self.deploy_trading(policy_id=None)
@@ -301,13 +310,64 @@ class SimulatePolicyTestCase(HandlerTestCase):
 
     def test_category_deployed_only_by_legacy_policy_uses_raw_entries(self):
         # earlier versions deployed "steam.com" as is, without the "*.steam.com" this version adds
-        self.store.objects(*REL)["Games_rg_hg"] = {"category_name": "Games", "rule_group_id": "rg"}
+        self.deploy("Games", sanitized=False)
         self.assertFalse(self.simulate("store.steam.com").body["found"])
         self.assertEqual(self.simulate("steam.com").body["rule"], "steam.com")
 
-        self.store.objects(*REL)["Games_rg2_hg"] = {"category_name": "Games", "rule_group_id": "rg2",
-                                                    "policy_id": "pol-1"}
+        self.deploy("Games", sanitized=True, rule_group="rg2")
         self.assertEqual(self.simulate("store.steam.com").body["rule"], "*.steam.com")
+
+    def test_relationships_are_not_read_when_the_format_cannot_matter(self):
+        self.assertTrue(self.simulate("google.com").body["found"])  # same entry raw and sanitized
+        self.assertFalse(self.simulate("example.org").body["found"])  # no entry either way
+        self.assertFalse(self.relationship_listed())
+        self.simulate("store.steam.com")  # only *.steam.com, added at deployment, matches
+        self.assertTrue(self.relationship_listed())
+
+    def test_failed_read_of_a_relevant_relationship_is_an_error(self):
+        self.store.fail_get.add(self.deploy("Games", sanitized=False))
+        resp = self.simulate("store.steam.com")
+        self.assertEqual(resp.code, 500)
+        self.assertIn("could not be read", resp.body["error"])
+
+    def test_failed_read_of_another_category_relationship_is_ignored(self):
+        self.store.fail_get.add(self.deploy("Search", sanitized=False))
+        resp = self.simulate("store.steam.com")  # Games is not deployed: checked as this version deploys it
+        self.assertEqual((resp.code, resp.body["found"], resp.body["rule"]), (200, True, "*.steam.com"))
+        self.assertNotIn(("get", "relationship", "Search_rg_hg"), self.store.calls)
+
+    def test_category_names_that_prefix_each_other(self):
+        # "Trading_rg_hg" belongs to Trading; "Trading_Tools_rg2_hg" to "Trading Tools", although it
+        # also starts with "Trading_": its record is never read, and a failure to read it is ignored
+        self.deploy("Trading", sanitized=True)
+        tools_key = self.deploy("Trading Tools", sanitized=False, rule_group="rg2")
+        self.assertFalse(self.simulate("evil-tradingview.com").body["found"])
+        self.assertNotIn(("get", "relationship", tools_key), self.store.calls)
+
+        self.store.fail_get.add(tools_key)
+        resp = self.simulate("evil-tradingview.com")
+        self.assertEqual((resp.code, resp.body["found"]), (200, False))
+
+    def test_relationship_records_are_filtered_by_category(self):
+        # a key of another shape cannot be attributed by name: it is read, and its record's
+        # category decides whether it counts
+        self.deploy("Trading", sanitized=True)
+        self.store.objects(*REL)["unshaped"] = {"category_name": "Trading Tools", "rule_group_id": "rg2"}
+        self.assertFalse(self.simulate("evil-tradingview.com").body["found"])
+        self.assertIn(("get", "relationship", "unshaped"), self.store.calls)
+
+    def test_failed_read_of_an_unattributable_key_is_an_error(self):
+        self.store.objects(*REL)["unshaped"] = {"category_name": "Search", "rule_group_id": "rg2"}
+        self.store.fail_get.add("unshaped")
+        self.assertEqual(self.simulate("store.steam.com").code, 500)
+
+    def test_truncated_relationship_listing_is_an_error(self):
+        for category in ("Search", "Games", "Trading"):
+            self.deploy(category, sanitized=True)
+        with patch.object(policies, "RELATIONSHIP_PAGE_SIZE", 2), patch.object(policies, "RELATIONSHIP_MAX_PAGES", 1):
+            resp = self.simulate("store.steam.com")
+        self.assertEqual(resp.code, 500)
+        self.assertIn("could not all be listed", resp.body["error"])
 
     def test_relationship_read_error(self):
         self.store.list_status_by_collection["relationship"] = 500
