@@ -377,9 +377,26 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.store.fail_get.add("Games")
         resp = self.simulate("example.org")
         self.assertEqual(resp.code, 500)
-        self.assertEqual(resp.body["error"], "Failed to simulate: 1 categories could not be read")
+        self.assertEqual(resp.body["error"], "Failed to simulate: 1 category could not be read")
         # a category that blocks the name is still reported, whatever could not be read
         self.assertEqual(self.simulate("google.com").body["category"], "Search")
+        self.store.fail_get.add("Trading")
+        self.assertEqual(self.simulate("example.org").body["error"], "Failed to simulate: 2 categories could not be read")
+
+    def simulate_first_category_only(self, fqdn):
+        """Domain keys are listed alphabetically: with one key per page and one page, only Games is read."""
+        with patch.object(policies, "DOMAIN_PAGE_SIZE", 1), patch.object(policies, "DOMAIN_MAX_PAGES", 1):
+            return self.simulate(fqdn)
+
+    def test_truncated_category_read_is_an_error_instead_of_not_blocked(self):
+        resp = self.simulate_first_category_only("example.org")
+        self.assertEqual(resp.code, 500)
+        self.assertEqual(resp.body["error"], "Failed to simulate: only the first 1 category could be read")
+
+    def test_truncated_category_read_still_reports_a_blocking_category(self):
+        for fqdn, rule in (("steam.com", "steam.com"), ("store.steam.com", "*.steam.com")):
+            resp = self.simulate_first_category_only(fqdn)
+            self.assertEqual((resp.code, resp.body["category"], resp.body["rule"]), (200, "Games", rule))
 
     def test_unrelated_and_invalid(self):
         self.assertFalse(self.simulate("example.org").body["found"])

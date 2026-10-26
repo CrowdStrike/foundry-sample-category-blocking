@@ -9,7 +9,7 @@ from crowdstrike.foundry.function import Request, RequestParams
 
 import main  # noqa: F401  # pylint: disable=unused-import
 from app_utils import (
-    category_key, relationship_key, validate_fqdn, _validate_falcon_response, _sanitize_url_list,
+    category_key, relationship_key, validate_fqdn, _validate_falcon_response, _sanitize_url_list, plural,
 )
 from conftest import FakeStorage
 from handlers import analytics, policies
@@ -48,6 +48,10 @@ class KeyHelpersTestCase(unittest.TestCase):
             {"status_code": 409, "body": {"errors": [{"message": "duplicate name"}]}}, "op")
         self.assertEqual((ok, err), (False, "duplicate name"))
         self.assertIn("429", _validate_falcon_response({"status_code": 429}, "op")[1])
+
+    def test_plural(self):
+        self.assertEqual([plural(n, "record") for n in (0, 1, 2)], ["0 records", "1 record", "2 records"])
+        self.assertEqual([plural(n, "category", "categories") for n in (1, 3)], ["1 category", "3 categories"])
 
     def test_sanitize_url_list(self):
         self.assertEqual(_sanitize_url_list("https://A.com/; bad entry ;b.org;*.c.net;a.COM", separator=';'),
@@ -491,6 +495,12 @@ class PolicyUpdateTestCase(PolicyChangeBase):
 
 class PolicyUpdateMarkerTestCase(PolicyChangeBase):
     # --- update-policy: the disabled_by_app marker of the previous policy -------
+    def test_update_reports_partial_relationship_writes(self):
+        self.store.fail_put.add("News_rg-new_hg1")
+        resp = self.update(dict(self.update_body, categories={"Games": "steam.com", "News": "bbc.com"}))
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(resp.body["warnings"], ["1 relationship record could not be written"])
+
     def mark_disabled_by_app(self):
         """The policy is disabled because an earlier delete of this app could not enable it again."""
         for key in ("old1", "old2"):
@@ -900,7 +910,8 @@ class PolicyDeleteTestCase(PolicyChangeBase):
         self.store.fail_delete.add("old2")
         resp = self.update(dict(self.update_body, platform=""))
         self.assertEqual(resp.code, 200)
-        self.assertIn("could not be removed", resp.body["warnings"][0])
+        self.assertEqual(resp.body["warnings"][0], "1 record of the previous rule group rg-old could not be removed; "
+                                                   "delete it from Firewall Rules")
         self.assertEqual(self.rel()["old2"]["policy_id"], "pol-legacy")
 
         self.store.fail_delete.clear()
@@ -977,8 +988,8 @@ class PolicyDeleteTestCase(PolicyChangeBase):
         resp = self.delete({"rule_group_id": "rg-old"})
         self.assertEqual(resp.body["relationsDeleted"], 1)
         self.assertEqual(resp.body["warnings"], [
-            "1 relationship records could not be removed, so this rule group is still listed in Firewall Rules: "
-            "delete it again to remove them."])
+            "1 relationship record could not be removed, so this rule group is still listed in Firewall Rules: "
+            "delete it again to finish the cleanup."])
         self.assertIn("old2", self.rel())
         self.pol.query_combined_policies.return_value = falcon_ok([])  # "other" is legacy; its policy is gone
         resp = self.delete({"rule_group_id": "rg-other"})
@@ -1106,7 +1117,7 @@ class PolicyQueryTestCase(PolicyBase):
         self.store.fail_get.add("b")
         resp = policies.health_check(req(), None, self.logger)
         self.assertEqual(resp.code, 500)
-        self.assertEqual(resp.body["error"], "Failed to read relationships: 1 records could not be read")
+        self.assertEqual(resp.body["error"], "Failed to read relationships: 1 record could not be read")
         self.pol.get_policies.assert_not_called()
 
     def test_health_check_keeps_found_policies_on_partial_404(self):

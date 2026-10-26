@@ -6300,6 +6300,11 @@ async function callFunction(falcon, method, path, body) {
   return response?.body ?? {};
 }
 
+// Same as plural() in functions/urlblock/app_utils.py: '1 rule', '2 rules' (or pluralForm)
+function plural(count, singular, pluralForm) {
+  return `${count} ${count === 1 ? singular : pluralForm || `${singular}s`}`;
+}
+
 function Link({
   children,
   useFalconNavigation = false,
@@ -30810,7 +30815,7 @@ function Home() {
       await buildPreview();
       setStatus({
         type: 'success',
-        message: `Preview generated successfully with domains from ${selectedCategories.length} categories`
+        message: `Preview generated successfully with domains from ${plural(selectedCategories.length, 'category', 'categories')}`
       });
     } catch (error) {
       console.error('Preview generation error:', error);
@@ -30863,9 +30868,13 @@ function Home() {
         // Falcon session user; the backend prefers the request context when it has one
         username: falcon?.data?.user?.username || ''
       });
-      setStatus({
+      const created = `Successfully created ${plural(result.rulesCreated, 'rule')} and assigned ` + plural(selectedCategories.length, 'category', 'categories');
+      setStatus(result?.warnings?.length ? {
+        type: 'warning',
+        message: `${created}, with warnings: ` + result.warnings.join(' ')
+      } : {
         type: 'success',
-        message: `Successfully created ${result.rulesCreated} rule(s) and assigned ${selectedCategories.length} categories!`
+        message: `${created}!`
       });
 
       // Reset form
@@ -31138,7 +31147,7 @@ function Home() {
       color: '#166534'
     }
   }, "\u2705 ", /*#__PURE__*/React.createElement("strong", null, "NOT BLOCKED"), " \u2014 ", simulatorResult.message))), status && /*#__PURE__*/React.createElement(alert_default, {
-    variant: status.type === 'error' ? 'danger' : status.type === 'success' ? 'success' : 'info',
+    variant: status.type === 'error' ? 'danger' : status.type === 'success' ? 'success' : status.type === 'warning' ? 'warning' : 'info',
     open: true,
     closable: true,
     onSlAfterHide: () => setStatus(null)
@@ -31171,7 +31180,7 @@ function About() {
       });
       setImportStatus({
         type: b.failed_imports > 0 ? 'warning' : 'success',
-        message: `Imported ${b.successful_imports} categories (${b.domains_imported} domains) from ${b.total_rows} rows` + (b.failed_imports > 0 ? `; ${b.failed_imports} rows/categories failed (see function logs).` : '.')
+        message: `Imported ${plural(b.successful_imports, 'category', 'categories')} ` + `(${plural(b.domains_imported, 'domain')}) from ${plural(b.total_rows, 'row')}` + (b.failed_imports > 0 ? `; ${plural(b.failed_imports, 'row or category', 'rows or categories')} failed (see function logs).` : '.')
       });
       setCsvFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -31455,6 +31464,7 @@ function FirewallRules() {
   const [isLoading, setIsLoading] = reactExports.useState(true);
   const [tableError, setTableError] = reactExports.useState(null);
   const [deletingId, setDeletingId] = reactExports.useState(null);
+  const [deleteStatus, setDeleteStatus] = reactExports.useState(null); // {type, message}
 
   // ── Available categories (for edit modal checkboxes)
   const [allCategories, setAllCategories] = reactExports.useState([]);
@@ -31506,12 +31516,19 @@ function FirewallRules() {
       return;
     }
     setDeletingId(ruleGroupId);
+    setDeleteStatus(null);
     try {
       // The backend resolves the policy from its own records for this rule group
-      await callFunction(falcon, 'POST', '/delete-policy', {
+      const result = await callFunction(falcon, 'POST', '/delete-policy', {
         rule_group_id: ruleGroupId
       });
       await loadPolicies();
+      if (result?.warnings?.length) {
+        setDeleteStatus({
+          type: 'warning',
+          message: 'Policy deleted with warnings: ' + result.warnings.join(' ')
+        });
+      }
     } catch (err) {
       console.error('handleDelete error:', err);
       alert('Failed to delete policy: ' + err.message);
@@ -31637,7 +31654,12 @@ function FirewallRules() {
     open: true,
     closable: true,
     onSlAfterHide: () => setTableError(null)
-  }, tableError), isLoading && /*#__PURE__*/React.createElement("div", {
+  }, tableError), deleteStatus && /*#__PURE__*/React.createElement(alert_default, {
+    variant: deleteStatus.type,
+    open: true,
+    closable: true,
+    onSlAfterHide: () => setDeleteStatus(null)
+  }, deleteStatus.message), isLoading && /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-center py-12"
   }, /*#__PURE__*/React.createElement(spinner_default, {
     style: {
@@ -31860,7 +31882,7 @@ function FirewallRules() {
       color: '#9ca3af',
       marginTop: '4px'
     }
-  }, editCategories.length, " categories selected")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, plural(editCategories.length, 'category', 'categories'), " selected")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontWeight: 600,
       color: '#111',

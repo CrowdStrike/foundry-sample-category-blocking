@@ -21,6 +21,11 @@ def relationship_key(category_name: str, rule_group_id: str, host_group_id: str)
     return f"{category_key(category_name)}_{rule_group_id}_{host_group_id}"
 
 
+def plural(count: int, singular: str, plural_form: str = None) -> str:
+    """'1 record', '2 records' (or `plural_form`, e.g. 'categories')."""
+    return f"{count} {singular if count == 1 else plural_form or singular + 's'}"
+
+
 def validate_fqdn(fqdn: str) -> bool:
     """Validate that a string looks like a valid FQDN or wildcard FQDN."""
     pattern = r'^(\*\.)?([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'

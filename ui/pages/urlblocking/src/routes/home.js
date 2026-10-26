@@ -2,6 +2,7 @@ import React, { useContext, useState, useEffect } from "react";
 import { FalconApiContext } from "../contexts/falcon-api-context";
 import { categoryKey } from "../utils/keys.js";
 import { callFunction } from "../utils/api.js";
+import { plural } from "../utils/text.js";
 import { Link } from '../components/link';
 import { SlSpinner, SlSelect, SlOption, SlButton, SlCheckbox, SlTextarea, SlAlert } from '@shoelace-style/shoelace/dist/react';
 import '@shoelace-style/shoelace/dist/themes/light.css';
@@ -113,7 +114,7 @@ function Home() {
       await buildPreview();
       setStatus({
         type: 'success',
-        message: `Preview generated successfully with domains from ${selectedCategories.length} categories`
+        message: `Preview generated successfully with domains from ${plural(selectedCategories.length, 'category', 'categories')}`
       });
     } catch (error) {
       console.error('Preview generation error:', error);
@@ -166,10 +167,11 @@ function Home() {
         username: falcon?.data?.user?.username || ''
       });
 
-      setStatus({
-        type: 'success',
-        message: `Successfully created ${result.rulesCreated} rule(s) and assigned ${selectedCategories.length} categories!`
-      });
+      const created = `Successfully created ${plural(result.rulesCreated, 'rule')} and assigned ` +
+        plural(selectedCategories.length, 'category', 'categories');
+      setStatus(result?.warnings?.length
+        ? { type: 'warning', message: `${created}, with warnings: ` + result.warnings.join(' ') }
+        : { type: 'success', message: `${created}!` });
 
       // Reset form
       setSelectedHostGroup('');
@@ -499,7 +501,7 @@ function Home() {
       {/* Status Messages */}
       {status && (
         <SlAlert
-          variant={status.type === 'error' ? 'danger' : status.type === 'success' ? 'success' : 'info'}
+          variant={status.type === 'error' ? 'danger' : status.type === 'success' ? 'success' : status.type === 'warning' ? 'warning' : 'info'}
           open
           closable
           onSlAfterHide={() => setStatus(null)}

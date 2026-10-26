@@ -18,6 +18,7 @@ from app_core import FUNC, get_client, COLLECTION_DOMAIN_VER, COLLECTION_RELATIO
 from app_utils import (
     _sanitize_url_list, _build_rule, read_all_objects, read_objects, list_object_keys, delete_object,
     query_param, category_key, relationship_key, validate_fqdn, _validate_falcon_response, resolve_creator,
+    plural,
 )
 
 PLATFORM_NAMES = {'windows': 'Windows', 'mac': 'Mac', 'linux': 'Linux'}
@@ -30,6 +31,10 @@ RULE_FORMAT_SANITIZED = "sanitized"
 # keeps the listing well within the function's 300 s limit (max_exec_duration_seconds).
 RELATIONSHIP_PAGE_SIZE = 200
 RELATIONSHIP_MAX_PAGES = 100  # 20,000 keys
+
+# The simulator reads the domain collection with read_all_objects' default limits
+DOMAIN_PAGE_SIZE = 200
+DOMAIN_MAX_PAGES = 50
 
 
 @FUNC.handler(method='GET', path='/urlblock')
@@ -549,8 +554,9 @@ def create_rule(request: Request, _: dict, logger: Logger) -> Response:
         if write_result["error_count"] and not write_result["success_count"]:
             warnings.append(_untracked_policy_warning(policy_id))
         elif write_result["error_count"]:
-            warnings.append(f"{write_result['error_count']} of {len(categories)} relationship records could not be "
-                            "written: those categories are blocked but not listed for this policy in Firewall Rules.")
+            warnings.append(f"{write_result['error_count']} of {plural(len(categories), 'relationship record')} "
+                            "could not be written: those categories are blocked but not listed for this policy "
+                            "in Firewall Rules.")
         for warning in warnings:
             logger.warning(f"create-rule: {warning}")
 
@@ -675,8 +681,8 @@ def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
         # (c) a retry removes what is left: the policy and rule group are gone (404)
         warnings = []
         if deleted < len(records):
-            warnings.append(f"{len(records) - deleted} relationship records could not be removed, so this rule group "
-                            "is still listed in Firewall Rules: delete it again to remove them.")
+            warnings.append(f"{plural(len(records) - deleted, 'relationship record')} could not be removed, so this "
+                            "rule group is still listed in Firewall Rules: delete it again to finish the cleanup.")
 
         logger.info(f"Delete-policy completed: RG={rule_group_id}, Policy={policy_id}, relations deleted={deleted}")
         return Response(code=200, body={"success": True, "relationsDeleted": deleted, "warnings": warnings})
@@ -829,12 +835,12 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
         if write_result["error_count"] and not write_result["success_count"]:
             warnings.append(_untracked_policy_warning(new_policy_id))
         elif write_result["error_count"]:
-            warnings.append(f"{write_result['error_count']} relationship records could not be written")
+            warnings.append(f"{plural(write_result['error_count'], 'relationship record')} could not be written")
         if not old_policy_kept:
             deleted_count = _delete_relationship_records(old_records, custom_storage, logger)
             logger.info(f"Deleted {deleted_count} old relationships")
             if deleted_count < len(old_records):
-                warnings.append(f"{len(old_records) - deleted_count} records of the previous rule group {old_rg_id} "
+                warnings.append(f"{plural(len(old_records) - deleted_count, 'record')} of the previous rule group {old_rg_id} "
                                 "could not be removed; delete it from Firewall Rules")
 
         for warning in warnings:
@@ -863,7 +869,7 @@ def _blocking_candidates(fqdn: str) -> list:
 
 
 @FUNC.handler(method='GET', path='/simulate-policy')
-# pylint: disable-next=too-many-return-statements,too-many-locals
+# pylint: disable-next=too-many-return-statements,too-many-locals,too-many-branches
 def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
     """Report whether a given FQDN would be blocked by any stored category."""
     try:
@@ -896,6 +902,7 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
 
         # Early return: stop paging at a category that blocks the name however it was deployed
         result = read_all_objects(custom_storage, 'domain', COLLECTION_DOMAIN_VER,
+                                  page_size=DOMAIN_PAGE_SIZE, max_pages=DOMAIN_MAX_PAGES,
                                   stop_when=_same_either_way, logger=logger)
         if "error" in result:
             return Response(code=500, body={"error": "Failed to simulate"})
@@ -938,7 +945,11 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
 
         # "Not blocked" would be wrong if one of the unread categories blocks the name
         if result["failed"]:
-            return Response(code=500, body={"error": f"Failed to simulate: {result['failed']} categories could not be read"})
+            unread = plural(result['failed'], 'category', 'categories')
+            return Response(code=500, body={"error": f"Failed to simulate: {unread} could not be read"})
+        if result["pagination"]["truncated"]:
+            read = plural(result['pagination']['returned'], 'category', 'categories')
+            return Response(code=500, body={"error": f"Failed to simulate: only the first {read} could be read"})
         return Response(code=200, body={"found": False, "category": None, "message": "Not blocked",
                                         "pagination": result["pagination"]})
     except Exception:
@@ -1022,7 +1033,7 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
         # A policy whose records could not be read would be missing from the report
         if result["failed"]:
             return Response(code=500, body={
-                "error": f"Failed to read relationships: {result['failed']} records could not be read"})
+                "error": f"Failed to read relationships: {plural(result['failed'], 'record')} could not be read"})
 
         # One entry per policy: keyed by policy_id, or by name for legacy records without it
         unique_policies = {}

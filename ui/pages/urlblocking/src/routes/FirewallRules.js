@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import { FalconApiContext } from '../contexts/falcon-api-context';
 import { categoryKey } from '../utils/keys.js';
 import { callFunction } from '../utils/api.js';
+import { plural } from '../utils/text.js';
 import {
   SlButton,
   SlDialog,
@@ -53,6 +54,7 @@ function FirewallRules() {
   const [isLoading, setIsLoading]       = useState(true);
   const [tableError, setTableError]     = useState(null);
   const [deletingId, setDeletingId]     = useState(null);
+  const [deleteStatus, setDeleteStatus] = useState(null); // {type, message}
 
   // ── Available categories (for edit modal checkboxes)
   const [allCategories, setAllCategories] = useState([]);
@@ -105,10 +107,14 @@ function FirewallRules() {
       return;
     }
     setDeletingId(ruleGroupId);
+    setDeleteStatus(null);
     try {
       // The backend resolves the policy from its own records for this rule group
-      await callFunction(falcon, 'POST', '/delete-policy', { rule_group_id: ruleGroupId });
+      const result = await callFunction(falcon, 'POST', '/delete-policy', { rule_group_id: ruleGroupId });
       await loadPolicies();
+      if (result?.warnings?.length) {
+        setDeleteStatus({ type: 'warning', message: 'Policy deleted with warnings: ' + result.warnings.join(' ') });
+      }
     } catch (err) {
       console.error('handleDelete error:', err);
       alert('Failed to delete policy: ' + err.message);
@@ -225,6 +231,13 @@ function FirewallRules() {
       {tableError && (
         <SlAlert variant="danger" open closable onSlAfterHide={() => setTableError(null)}>
           {tableError}
+        </SlAlert>
+      )}
+
+      {/* ── Delete warnings ─────────────────────────────────────────────── */}
+      {deleteStatus && (
+        <SlAlert variant={deleteStatus.type} open closable onSlAfterHide={() => setDeleteStatus(null)}>
+          {deleteStatus.message}
         </SlAlert>
       )}
 
@@ -446,7 +459,7 @@ function FirewallRules() {
                 )}
               </div>
               <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
-                {editCategories.length} categories selected
+                {plural(editCategories.length, 'category', 'categories')} selected
               </div>
             </div>
 

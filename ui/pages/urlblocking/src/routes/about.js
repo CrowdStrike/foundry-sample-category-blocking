@@ -2,6 +2,7 @@ import React, { useState, useContext, useRef } from "react";
 import { SlAlert, SlButton } from "@shoelace-style/shoelace/dist/react";
 import { FalconApiContext } from "../contexts/falcon-api-context";
 import { callFunction } from "../utils/api.js";
+import { plural } from "../utils/text.js";
 
 function About() {
   const { falcon, refreshCategories } = useContext(FalconApiContext);
@@ -25,8 +26,11 @@ function About() {
       const b = await callFunction(falcon, 'POST', '/import-csv', { csv });
       setImportStatus({
         type: b.failed_imports > 0 ? 'warning' : 'success',
-        message: `Imported ${b.successful_imports} categories (${b.domains_imported} domains) from ${b.total_rows} rows` +
-          (b.failed_imports > 0 ? `; ${b.failed_imports} rows/categories failed (see function logs).` : '.')
+        message: `Imported ${plural(b.successful_imports, 'category', 'categories')} ` +
+          `(${plural(b.domains_imported, 'domain')}) from ${plural(b.total_rows, 'row')}` +
+          (b.failed_imports > 0
+            ? `; ${plural(b.failed_imports, 'row or category', 'rows or categories')} failed (see function logs).`
+            : '.')
       });
       setCsvFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
