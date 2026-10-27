@@ -7,6 +7,7 @@ in-memory FakeStorage, which answers with FalconPy's real response shapes.
 
 import threading
 import unittest
+from functools import partial
 from unittest.mock import MagicMock, patch
 
 from crowdstrike.foundry.function import Request, RequestParams
@@ -393,8 +394,11 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertEqual(self.simulate("example.org").body["error"], "Failed to simulate: 2 categories could not be read")
 
     def simulate_first_category_only(self, fqdn):
-        """Domain keys are listed alphabetically: with one key per page and one page, only Games is read."""
-        with patch.object(policies, "DOMAIN_PAGE_SIZE", 1), patch.object(policies, "DOMAIN_MAX_PAGES", 1):
+        """
+        Domain keys are listed alphabetically: with one key per page and one page, only Games is read.
+        The simulator uses read_all_objects' default limits, which these arguments replace.
+        """
+        with patch.object(policies, "read_all_objects", partial(read_all_objects, page_size=1, max_pages=1)):
             return self.simulate(fqdn)
 
     def test_truncated_category_read_is_an_error_instead_of_not_blocked(self):

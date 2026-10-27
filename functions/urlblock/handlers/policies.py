@@ -32,10 +32,6 @@ RULE_FORMAT_SANITIZED = "sanitized"
 RELATIONSHIP_PAGE_SIZE = 200
 RELATIONSHIP_MAX_PAGES = 100  # 20,000 keys
 
-# The simulator reads the domain collection with read_all_objects' default limits
-DOMAIN_PAGE_SIZE = 200
-DOMAIN_MAX_PAGES = 50
-
 
 @FUNC.handler(method='GET', path='/urlblock')
 def on_create(_: Request, __: dict, logger: Logger) -> Response:
@@ -900,9 +896,9 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
             entry = _current_entry(item)
             return entry is not None and entry == _legacy_entry(item)
 
-        # Early return: stop paging at a category that blocks the name however it was deployed
+        # Early return: stop paging at a category that blocks the name however it was deployed.
+        # The domain collection is read with read_all_objects' default limits.
         result = read_all_objects(custom_storage, 'domain', COLLECTION_DOMAIN_VER,
-                                  page_size=DOMAIN_PAGE_SIZE, max_pages=DOMAIN_MAX_PAGES,
                                   stop_when=_same_either_way, logger=logger)
         if "error" in result:
             return Response(code=500, body={"error": "Failed to simulate"})
