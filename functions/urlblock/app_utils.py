@@ -300,12 +300,12 @@ def read_objects(custom_storage, collection_name: str, collection_version: str, 
     return objects, failed
 
 
-# pylint: disable-next=too-many-locals
 def read_all_objects(custom_storage, collection_name: str, collection_version: str,
                      page_size: int = 200, max_pages: int = 50, max_workers: int = 10,
                      stop_when=None, logger=None) -> dict:
     """
-    Read every object of a collection (each gets its key in `_key`).
+    Read every object of a collection (each gets its key in `_key`), one page at a time
+    with read_objects.
 
     `stop_when(item)` (optional) ends the scan at the first matching item, returned in `match`.
     Returns {"resources", "match", "failed", "pagination"} or {"error"}.
@@ -315,33 +315,16 @@ def read_all_objects(custom_storage, collection_name: str, collection_version: s
     match = None
     failed = 0
 
-    def _fetch(key):
-        obj = get_object(custom_storage, collection_name, collection_version, key)
-        if isinstance(obj, dict):
-            obj = dict(obj)
-            obj["_key"] = key
-        return obj
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for keys in _iter_key_pages(custom_storage, collection_name, collection_version,
-                                    page_size, max_pages, state):
-            futures = [(k, executor.submit(_fetch, k)) for k in keys]
-            page = []
-            for key, future in futures:
-                try:
-                    obj = future.result()
-                except Exception as e:
-                    failed += 1
-                    if logger:
-                        logger.warning(f"Could not read {collection_name}/{key}: {e}")
-                    continue
-                if isinstance(obj, dict):
-                    page.append(obj)
-            resources.extend(page)
-            if stop_when:
-                match = next((r for r in page if stop_when(r)), None)
-                if match is not None:
-                    break
+    for keys in _iter_key_pages(custom_storage, collection_name, collection_version,
+                                page_size, max_pages, state):
+        page, page_failed = read_objects(custom_storage, collection_name, collection_version, keys,
+                                         max_workers=max_workers, logger=logger)
+        failed += len(page_failed)
+        resources.extend(page)
+        if stop_when:
+            match = next((r for r in page if stop_when(r)), None)
+            if match is not None:
+                break
 
     if "error" in state:
         return {"error": state["error"]}

@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from crowdstrike.foundry.function import Request, RequestParams
 
 import main  # noqa: F401  # pylint: disable=unused-import  # registers all handlers
+import app_utils
 from app_utils import (
     list_object_keys, read_all_objects, parse_object_response, query_param, StorageError,
     _get_username, resolve_creator,
@@ -103,6 +104,14 @@ class StorageHelpersTestCase(unittest.TestCase):
         result = read_all_objects(store, *DOMAIN)
         self.assertEqual(len(result["resources"]), 1)
         self.assertEqual(result["failed"], 1)
+
+    def test_read_all_objects_reads_each_page_with_read_objects(self):
+        store = FakeStorage({DOMAIN: {"a": {"x": 1}, "b": {"x": 2}, "c": {"x": 3}}})
+        store.fail_get.add("b")
+        with patch.object(app_utils, "read_objects", wraps=app_utils.read_objects) as read:
+            result = read_all_objects(store, *DOMAIN, page_size=2)  # pages [a, b] and [c]
+        self.assertEqual([c.args[3] for c in read.call_args_list], [["a", "b"], ["c"]])
+        self.assertEqual(([r["_key"] for r in result["resources"]], result["failed"]), (["a", "c"], 1))
 
     def test_parse_object_response_shapes(self):
         self.assertEqual(parse_object_response(b'{"a": 1}'), {"a": 1})
