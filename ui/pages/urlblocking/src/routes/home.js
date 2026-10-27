@@ -480,6 +480,19 @@ function Home() {
                   Category: <strong>{simulatorResult.category}</strong>
                 </span>
               </div>
+            ) : simulatorResult.incomplete ? (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  background: '#ffedd5',
+                  border: '1px solid #fdba74',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  color: '#9a3412'
+                }}
+              >
+                ⚠️ <strong>NOT CONFIRMED</strong> — {simulatorResult.message}
+              </div>
             ) : (
               <div
                 style={{

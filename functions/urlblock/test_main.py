@@ -3,7 +3,7 @@
 Requests use the real Foundry request model (see conftest.py) and Custom Storage is the
 in-memory FakeStorage, which answers with FalconPy's real response shapes.
 """
-# pylint: disable=missing-class-docstring,missing-function-docstring,invalid-name
+# pylint: disable=missing-class-docstring,missing-function-docstring,invalid-name,too-many-public-methods
 
 import threading
 import unittest
@@ -364,11 +364,22 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertEqual(len(self.calls("list", "relationship")), 1)
         self.assertEqual([c[2] for c in self.calls("get", "relationship")], [fb_key])
 
-    def test_failed_read_of_a_relevant_relationship_is_an_error(self):
+    def assert_not_confirmed(self, resp, warning):
+        """Nothing that could be checked blocks the name, but something could not be checked."""
+        self.assertEqual((resp.code, resp.body["found"], resp.body["incomplete"]), (200, False, True))
+        self.assertEqual(resp.body["warnings"], [warning])
+        self.assertEqual(resp.body["message"], f"Not blocked by the categories that could be checked, but {warning}")
+
+    def test_failed_read_of_a_relevant_relationship_leaves_the_result_incomplete(self):
         self.store.fail_get.add(self.deploy("Games", sanitized=False))
-        resp = self.simulate("store.steam.com")
-        self.assertEqual(resp.code, 500)
-        self.assertIn("could not be read", resp.body["error"])
+        self.assert_not_confirmed(self.simulate("store.steam.com"),
+                                  "whether Games blocks it could not be determined (Some relationships could not be read)")
+
+    def test_a_category_that_blocks_wins_over_an_undetermined_one(self):
+        self.store.objects(*DOMAIN)["Mirror"] = {"category": "Mirror", "domain": "*.steam.com"}
+        self.store.fail_get.add(self.deploy("Games", sanitized=False))
+        resp = self.simulate("store.steam.com")  # Games is read first, and its format is unknown
+        self.assertEqual((resp.code, resp.body["category"], resp.body["incomplete"]), (200, "Mirror", False))
 
     def test_failed_read_of_another_category_relationship_is_ignored(self):
         self.store.fail_get.add(self.deploy("Search", sanitized=False))
@@ -396,32 +407,39 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertFalse(self.simulate("evil-tradingview.com").body["found"])
         self.assertIn(("get", "relationship", "unshaped"), self.store.calls)
 
-    def test_failed_read_of_an_unattributable_key_is_an_error(self):
+    def test_failed_read_of_an_unattributable_key_leaves_the_result_incomplete(self):
         self.store.objects(*REL)["unshaped"] = {"category_name": "Search", "rule_group_id": "rg2"}
         self.store.fail_get.add("unshaped")
-        self.assertEqual(self.simulate("store.steam.com").code, 500)
+        self.assert_not_confirmed(self.simulate("store.steam.com"),
+                                  "whether Games blocks it could not be determined (Some relationships could not be read)")
 
-    def test_truncated_relationship_listing_is_an_error(self):
+    def test_truncated_relationship_listing_leaves_the_result_incomplete(self):
         for category in ("Search", "Games", "Trading"):
             self.deploy(category, sanitized=True)
         with patch.object(policies, "RELATIONSHIP_PAGE_SIZE", 2), patch.object(policies, "RELATIONSHIP_MAX_PAGES", 1):
             resp = self.simulate("store.steam.com")
-        self.assertEqual(resp.code, 500)
-        self.assertIn("could not all be listed", resp.body["error"])
+        self.assert_not_confirmed(resp, "whether Games blocks it could not be determined "
+                                        "(There are more than 2 relationships, so they could not all be listed)")
 
-    def test_relationship_read_error(self):
+    def test_relationship_listing_error_leaves_the_result_incomplete(self):
         self.store.list_status_by_collection["relationship"] = 500
-        self.assertEqual(self.simulate("evil-tradingview.com").code, 500)
+        self.assert_not_confirmed(self.simulate("evil-tradingview.com"),
+                                  "whether Trading blocks it could not be determined (Failed to read relationships)")
 
-    def test_failed_category_read_is_an_error_instead_of_not_blocked(self):
+    def test_failed_category_read_leaves_the_result_incomplete(self):
         self.store.fail_get.add("Games")
-        resp = self.simulate("example.org")
-        self.assertEqual(resp.code, 500)
-        self.assertEqual(resp.body["error"], "Failed to simulate: 1 category could not be read")
+        self.assert_not_confirmed(self.simulate("example.org"), "1 category could not be read")
         # a category that blocks the name is still reported, whatever could not be read
-        self.assertEqual(self.simulate("google.com").body["category"], "Search")
+        resp = self.simulate("google.com")
+        self.assertEqual((resp.body["category"], resp.body["incomplete"], resp.body["warnings"]), ("Search", False, []))
         self.store.fail_get.add("Trading")
-        self.assertEqual(self.simulate("example.org").body["error"], "Failed to simulate: 2 categories could not be read")
+        self.assert_not_confirmed(self.simulate("example.org"), "2 categories could not be read")
+
+    def test_domain_listing_error_is_an_error(self):
+        # no category could be read at all: there is no subset to report
+        self.store.list_status_by_collection["domain"] = 500
+        resp = self.simulate("google.com")
+        self.assertEqual((resp.code, resp.body["error"]), (500, "Failed to simulate"))
 
     def simulate_first_category_only(self, fqdn):
         """
@@ -431,10 +449,9 @@ class SimulatePolicyTestCase(HandlerTestCase):
         with patch.object(policies, "read_all_objects", partial(read_all_objects, page_size=1, max_pages=1)):
             return self.simulate(fqdn)
 
-    def test_truncated_category_read_is_an_error_instead_of_not_blocked(self):
-        resp = self.simulate_first_category_only("example.org")
-        self.assertEqual(resp.code, 500)
-        self.assertEqual(resp.body["error"], "Failed to simulate: only the first 1 category could be read")
+    def test_truncated_category_read_leaves_the_result_incomplete(self):
+        self.assert_not_confirmed(self.simulate_first_category_only("example.org"),
+                                  "only the first 1 category could be read")
 
     def test_truncated_category_read_still_reports_a_blocking_category(self):
         for fqdn, rule in (("steam.com", "steam.com"), ("store.steam.com", "*.steam.com")):
@@ -442,7 +459,8 @@ class SimulatePolicyTestCase(HandlerTestCase):
             self.assertEqual((resp.code, resp.body["category"], resp.body["rule"]), (200, "Games", rule))
 
     def test_unrelated_and_invalid(self):
-        self.assertFalse(self.simulate("example.org").body["found"])
+        resp = self.simulate("example.org")
+        self.assertEqual((resp.body["found"], resp.body["incomplete"], resp.body["message"]), (False, False, "Not blocked"))
         self.assertEqual(self.simulate("not a domain").code, 400)
         self.assertEqual(policies.simulate_policy(req(), None, self.logger).code, 400)
 

@@ -1254,12 +1254,33 @@ class PolicyQueryTestCase(PolicyBase):
         self.assertEqual(self.mgmt.get_policy_containers.call_count, 2)
         self.assertEqual(resp.body["healthy_count"], 150)
 
-    def test_health_check_relationship_read_failure_is_an_error(self):
+    def test_health_check_reports_the_readable_records_when_some_cannot_be_read(self):
         self.store.data[REL] = {"a": {"policy_id": "p1", "policy_name": "A"}, "b": {"policy_id": "p2", "policy_name": "B"}}
         self.store.fail_get.add("b")
+        self.pol.get_policies.return_value = falcon_ok([{"id": "p1", "enabled": True, "groups": [1]}])
+        self.mgmt.get_policy_containers.return_value = falcon_ok(
+            [{"policy_id": "p1", "enforce": True, "rule_group_ids": ["r"]}])
         resp = policies.health_check(req(), None, self.logger)
-        self.assertEqual(resp.code, 500)
-        self.assertEqual(resp.body["error"], "Failed to read relationships: 1 record could not be read")
+        self.assertEqual(resp.code, 200)
+        self.assertEqual([(p["policy_id"], p["status"]) for p in resp.body["policies"]], [("p1", "healthy")])
+        self.assertEqual((resp.body["incomplete"], resp.body["healthy"]), (True, False))
+        self.assertEqual(resp.body["warnings"], ["1 relationship record could not be read, so its policy may be "
+                                                 "missing from this report"])
+        self.pol.get_policies.assert_called_once_with(ids=["p1"])
+
+    def test_health_check_complete_report_has_no_warnings(self):
+        self.store.data[REL] = {"a": {"policy_id": "p1", "policy_name": "A"}}
+        self.pol.get_policies.return_value = falcon_ok([{"id": "p1", "enabled": True, "groups": [1]}])
+        self.mgmt.get_policy_containers.return_value = falcon_ok(
+            [{"policy_id": "p1", "enforce": True, "rule_group_ids": ["r"]}])
+        resp = policies.health_check(req(), None, self.logger)
+        self.assertEqual((resp.body["healthy"], resp.body["incomplete"], resp.body["warnings"]), (True, False, []))
+
+    def test_health_check_relationship_listing_failure_is_an_error(self):
+        # no record could be read at all: there is no subset to report
+        self.store.list_status = 500
+        resp = policies.health_check(req(), None, self.logger)
+        self.assertEqual((resp.code, resp.body["error"]), (500, "Failed to read relationships"))
         self.pol.get_policies.assert_not_called()
 
     def test_health_check_keeps_found_policies_on_partial_404(self):

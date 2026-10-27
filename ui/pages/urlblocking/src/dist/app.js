@@ -31137,7 +31137,16 @@ function Home() {
       fontSize: '12px',
       color: '#92400e'
     }
-  }, "Category: ", /*#__PURE__*/React.createElement("strong", null, simulatorResult.category))) : /*#__PURE__*/React.createElement("div", {
+  }, "Category: ", /*#__PURE__*/React.createElement("strong", null, simulatorResult.category))) : simulatorResult.incomplete ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '10px 14px',
+      background: '#ffedd5',
+      border: '1px solid #fdba74',
+      borderRadius: '4px',
+      fontSize: '13px',
+      color: '#9a3412'
+    }
+  }, "\u26A0\uFE0F ", /*#__PURE__*/React.createElement("strong", null, "NOT CONFIRMED"), " \u2014 ", simulatorResult.message) : /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '10px 14px',
       background: '#dcfce7',

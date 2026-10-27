@@ -974,7 +974,7 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
                     for r in records if r.get('category_name') == category}, None
 
         found = {}  # the rule that blocks the name
-        unresolved = []  # why the format of a category could not be resolved
+        unresolved = []  # (category, why its format could not be resolved)
 
         def _blocks(item):
             current, legacy = _current_entry(item), _legacy_entry(item)
@@ -988,7 +988,7 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
             # The raw and sanitized entries match differently: the rules deployed for it decide
             deployed, err = _deployed_formats(item['category'])
             if err:
-                unresolved.append(err)  # another category may still block the name
+                unresolved.append((item['category'], err))  # another category may still block the name
                 return False
             # A category not deployed yet is checked as this version would deploy it
             rule = current if not deployed or 'sanitized' in deployed else None
@@ -1006,19 +1006,21 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
         if result["match"]:
             category = result["match"].get('category')
             return Response(code=200, body={"found": True, "category": category, "rule": found['rule'],
-                                            "message": f"Blocked by {category}",
-                                            "pagination": result["pagination"]})
-        if unresolved:
-            return Response(code=500, body={"error": f"Failed to simulate: {unresolved[0]}"})
+                                            "message": f"Blocked by {category}", "incomplete": False,
+                                            "warnings": [], "pagination": result["pagination"]})
 
-        # "Not blocked" would be wrong if one of the unread categories blocks the name
+        # "Not blocked" is only certain when every category could be read and checked: otherwise
+        # the result says what could not be (no category read at all is an error, above)
+        warnings = [f"whether {category} blocks it could not be determined ({err})" for category, err in unresolved]
         if result["failed"]:
-            unread = plural(result['failed'], 'category', 'categories')
-            return Response(code=500, body={"error": f"Failed to simulate: {unread} could not be read"})
+            warnings.append(f"{plural(result['failed'], 'category', 'categories')} could not be read")
         if result["pagination"]["truncated"]:
             read = plural(result['pagination']['returned'], 'category', 'categories')
-            return Response(code=500, body={"error": f"Failed to simulate: only the first {read} could be read"})
-        return Response(code=200, body={"found": False, "category": None, "message": "Not blocked",
+            warnings.append(f"only the first {read} could be read")
+        message = (f"Not blocked by the categories that could be checked, but {'; '.join(warnings)}"
+                   if warnings else "Not blocked")
+        return Response(code=200, body={"found": False, "category": None, "message": message,
+                                        "incomplete": bool(warnings), "warnings": warnings,
                                         "pagination": result["pagination"]})
     except Exception:
         logger.error(traceback.format_exc())
@@ -1098,10 +1100,12 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
         result = read_all_objects(custom_storage, "relationship", COLLECTION_RELATION_VER, logger=logger)
         if "error" in result:
             return Response(code=500, body={"error": "Failed to read relationships"})
-        # A policy whose records could not be read would be missing from the report
+        # The readable records are checked; a policy whose records could not be read may be missing
+        warnings = []
         if result["failed"]:
-            return Response(code=500, body={
-                "error": f"Failed to read relationships: {plural(result['failed'], 'record')} could not be read"})
+            count = plural(result['failed'], 'relationship record')
+            warnings.append(f"{count} could not be read, so {'its policy' if result['failed'] == 1 else 'their policies'} "
+                            "may be missing from this report")
 
         # One entry per policy: keyed by policy_id, or for legacy records without it by name and
         # rule group (same-name legacy policies are told apart by their rule group)
@@ -1192,11 +1196,13 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
             results.append(pol_info)
 
         summary = {
-            "healthy": issues_count == 0 and len(unique_policies) > 0,
+            "healthy": issues_count == 0 and len(unique_policies) > 0 and not warnings,
             "total_policies_checked": len(unique_policies),
             "healthy_count": healthy_count,
             "issues_count": issues_count,
             "policies": results,
+            "incomplete": bool(warnings),
+            "warnings": warnings,
             "pagination": result["pagination"]
         }
 
