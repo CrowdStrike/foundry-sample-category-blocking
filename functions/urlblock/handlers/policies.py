@@ -584,6 +584,9 @@ def create_rule(request: Request, _: dict, logger: Logger) -> Response:
 
         if not host_group_id or not policy_name or not isinstance(categories, dict):
             return Response(code=400, body={"error": "Missing required fields"})
+        # Each category gets a relationship record: without one the app would not track the policy
+        if not categories:
+            return Response(code=400, body={"error": "At least one category is required"})
 
         rules_list = _build_rules_list(policy_name, categories, whitelist_raw)
         if not rules_list:
@@ -778,6 +781,9 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
 
         if not old_rg_id or not isinstance(categories, dict):
             return Response(code=400, body={"error": "Missing required fields"})
+        # The old records are replaced by one per category: without any the app would lose the policy
+        if not categories:
+            return Response(code=400, body={"error": "At least one category is required"})
 
         mgmt = get_client(FirewallManagement)
         fw_policies = get_client(FirewallPolicies)

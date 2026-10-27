@@ -201,6 +201,19 @@ class PolicyTestCase(PolicyBase):
 
 
 
+    def test_create_rule_without_categories_is_rejected(self):
+        # a whitelist alone would create a policy with no relationship record, which the app never lists
+        for categories in ({}, None):
+            body = dict(self.create_body, categories=categories)
+            if categories is None:
+                del body["categories"]
+            resp = policies.create_rule(req(body), None, self.logger)
+            self.assertEqual((resp.code, resp.body["error"]), (400, "At least one category is required"))
+        self.pol.create_policies.assert_not_called()
+        self.mgmt.create_rule_group.assert_not_called()
+        self.assertEqual(self.store.calls, [])
+
+
 class PolicyChangeBase(PolicyBase):
     """update-policy and delete-policy: both go through _delete_policy."""
 
@@ -409,6 +422,20 @@ class PolicyUpdateTestCase(PolicyChangeBase):
             for key, value in stored.items():
                 self.rel()[key][field_name] = value
         self.pol.create_policies.assert_not_called()
+
+    def test_update_without_categories_is_rejected(self):
+        # the old records would be deleted and the new policy written with none: the app would lose it
+        records = {k: dict(v) for k, v in self.rel().items()}
+        for categories in ({}, None):
+            body = dict(self.update_body, categories=categories, whitelist="ok.com")
+            if categories is None:
+                del body["categories"]
+            resp = self.update(body)
+            self.assertEqual((resp.code, resp.body["error"]), (400, "At least one category is required"))
+        self.pol.create_policies.assert_not_called()
+        self.assertEqual(self.touched_policies(), set())
+        self.assertEqual(self.store.calls, [])
+        self.assertEqual(self.rel(), records)
 
     def test_update_uses_stored_host_group_and_platform(self):
         resp = self.update(dict(self.update_body, hostGroupId="hg-other", platform="mac", hostGroupName="X"))
