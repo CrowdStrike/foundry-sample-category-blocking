@@ -216,6 +216,17 @@ class PolicyTestCase(PolicyBase):
         self.assertEqual(self.store.calls, [])
 
 
+    def test_create_rule_with_a_category_without_valid_domains_is_rejected(self):
+        # its record would list the category as blocked, but its rule would block nothing
+        for categories, error in (({"Games": "steam.com", "News": "not a domain;1.2.3.4"}, "category 'News'"),
+                                  ({"Games": "", "News": "  "}, "categories 'Games', 'News'")):
+            resp = policies.create_rule(req(dict(self.create_body, categories=categories)), None, self.logger)
+            self.assertEqual((resp.code, resp.body["error"]), (400, f"No valid domain in {error}"))
+        self.pol.create_policies.assert_not_called()
+        self.mgmt.create_rule_group.assert_not_called()
+        self.assertEqual(self.store.calls, [])
+
+
 class PolicyChangeBase(PolicyBase):
     """update-policy and delete-policy: both go through _delete_policy."""
 
@@ -434,6 +445,15 @@ class PolicyUpdateTestCase(PolicyChangeBase):
                 del body["categories"]
             resp = self.update(body)
             self.assertEqual((resp.code, resp.body["error"]), (400, "At least one category is required"))
+        self.pol.create_policies.assert_not_called()
+        self.assertEqual(self.touched_policies(), set())
+        self.assertEqual(self.store.calls, [])
+        self.assertEqual(self.rel(), records)
+
+    def test_update_with_a_category_without_valid_domains_is_rejected(self):
+        records = {k: dict(v) for k, v in self.rel().items()}
+        resp = self.update(dict(self.update_body, categories={"Games": "steam.com", "News": "http://"}))
+        self.assertEqual((resp.code, resp.body["error"]), (400, "No valid domain in category 'News'"))
         self.pol.create_policies.assert_not_called()
         self.assertEqual(self.touched_policies(), set())
         self.assertEqual(self.store.calls, [])

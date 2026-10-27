@@ -477,6 +477,22 @@ def _rollback(mgmt, fw_policies, policy_id, rg_id, logger=None):
     return "Rolled back."
 
 
+def _categories_error(categories):
+    """
+    Why `categories` ({name: domains}) cannot be deployed, or None. Each category gets a
+    relationship record: without any the app would not track the policy, and a category with
+    no valid domain once sanitized would be listed as blocked while its rule blocks nothing.
+    """
+    if not categories:
+        return "At least one category is required"
+    empty = [name for name, urls in categories.items()
+             if not isinstance(urls, str) or not _sanitize_url_list(urls, separator=';')]
+    if empty:
+        names = ', '.join(f"'{name}'" for name in empty)
+        return f"No valid domain in {'category' if len(empty) == 1 else 'categories'} {names}"
+    return None
+
+
 def _build_rules_list(policy_name, categories, whitelist_raw):
     """Build the firewall rules for a policy from its whitelist and categories."""
     rules_list = []
@@ -584,9 +600,9 @@ def create_rule(request: Request, _: dict, logger: Logger) -> Response:
 
         if not host_group_id or not policy_name or not isinstance(categories, dict):
             return Response(code=400, body={"error": "Missing required fields"})
-        # Each category gets a relationship record: without one the app would not track the policy
-        if not categories:
-            return Response(code=400, body={"error": "At least one category is required"})
+        error = _categories_error(categories)
+        if error:
+            return Response(code=400, body={"error": error})
 
         rules_list = _build_rules_list(policy_name, categories, whitelist_raw)
         if not rules_list:
@@ -782,8 +798,9 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
         if not old_rg_id or not isinstance(categories, dict):
             return Response(code=400, body={"error": "Missing required fields"})
         # The old records are replaced by one per category: without any the app would lose the policy
-        if not categories:
-            return Response(code=400, body={"error": "At least one category is required"})
+        error = _categories_error(categories)
+        if error:
+            return Response(code=400, body={"error": error})
 
         mgmt = get_client(FirewallManagement)
         fw_policies = get_client(FirewallPolicies)
