@@ -268,6 +268,18 @@ class SimulatePolicyTestCase(HandlerTestCase):
         "Trading": {"category": "Trading", "domain": "tradingview.com;*tradingview.com"},
     }}
 
+    def setUp(self):
+        super().setUp()
+        # Falcon: every rule group exists, unless listed in self.deleted_rule_groups
+        self.deleted_rule_groups = set()
+        self.mgmt = MagicMock()
+        self.mgmt.get_rule_groups.side_effect = lambda ids: falcon_response(
+            resources=[{"id": i} for i in ids if i not in self.deleted_rule_groups])
+        clients = {"CustomStorage": self.store, "FirewallManagement": self.mgmt}
+        p = patch.object(policies, "get_client", side_effect=lambda cls: clients[cls.__name__])
+        p.start()
+        self.addCleanup(p.stop)
+
     def simulate(self, fqdn):
         return policies.simulate_policy(req(query={"fqdn": fqdn}), None, self.logger)
 
@@ -327,6 +339,31 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.deploy("Games", sanitized=True, rule_group="rg2")
         self.assertEqual(self.simulate("store.steam.com").body["rule"], "*.steam.com")
 
+    def test_records_of_a_deleted_rule_group_do_not_count_as_deployed(self):
+        # delete-policy deleted the legacy rule group, then one of its records could not be removed:
+        # Games is no longer deployed, so it is checked as this version would deploy it
+        self.deploy("Games", sanitized=False, rule_group="rg-gone")
+        self.deleted_rule_groups.add("rg-gone")
+        self.mgmt.get_rule_groups.side_effect = lambda ids: falcon_response(404, errors=[{"message": "not found"}])
+        resp = self.simulate("store.steam.com")
+        self.assertEqual((resp.body["found"], resp.body["message"], resp.body["rule"]),
+                         (True, "Blocked by Games", "*.steam.com"))
+        self.mgmt.get_rule_groups.assert_called_once_with(ids=["rg-gone"])
+
+    def test_only_records_of_existing_rule_groups_count(self):
+        self.deploy("Games", sanitized=True, rule_group="rg-gone")
+        self.deploy("Games", sanitized=False, rule_group="rg-live")
+        self.deleted_rule_groups.add("rg-gone")
+        self.assertFalse(self.simulate("store.steam.com").body["found"])  # only the raw "steam.com" is deployed
+        self.mgmt.get_rule_groups.assert_called_once()
+        self.assertEqual(sorted(self.mgmt.get_rule_groups.call_args.kwargs["ids"]), ["rg-gone", "rg-live"])
+
+    def test_rule_group_read_error_leaves_the_result_incomplete(self):
+        self.deploy("Games", sanitized=False)
+        self.mgmt.get_rule_groups.side_effect = lambda ids: falcon_response(429, errors=[{"message": "slow"}])
+        self.assert_not_confirmed(self.simulate("store.steam.com"), "whether Games blocks it could not be "
+                                                                   "determined (Failed to read rule groups from Falcon: slow)")
+
     def test_relationships_are_not_read_when_the_format_cannot_matter(self):
         self.assertTrue(self.simulate("google.com").body["found"])  # same entry raw and sanitized
         self.assertFalse(self.simulate("example.org").body["found"])  # no entry either way
@@ -353,6 +390,7 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertEqual([c[2] for c in self.calls("get", "domain")], ["Facebook", "Games"])
         self.assertEqual(len(self.calls("list", "relationship")), 1)
         self.assertEqual([c[2] for c in self.calls("get", "relationship")], [fb_key])
+        self.mgmt.get_rule_groups.assert_called_once_with(ids=["rg"])
 
     def test_relationships_are_listed_once_per_simulation(self):
         # Facebook only deployed raw ("facebook.com" alone): the scan goes on to "Fb Mirror", not deployed

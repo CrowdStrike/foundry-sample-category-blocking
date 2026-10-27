@@ -959,7 +959,12 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
         relationship_listing = {}  # listed once, when the format of a category first matters
 
         def _deployed_formats(category):
-            """Formats of the rules deployed for a category: (set, None) or (None, error message)."""
+            """
+            Formats of the rules deployed for a category: (set, None) or (None, error message).
+            Only records whose rule group exists in Falcon count: delete-policy and update-policy
+            delete the rule group before its records, so a record left behind by a failed
+            cleanup names a rule group that no longer exists.
+            """
             if not relationship_listing:
                 relationship_listing['keys'], relationship_listing['error'] = _list_relationship_keys(
                     custom_storage, logger)
@@ -970,8 +975,16 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
                                                lambda parts: parts is None or parts[0] in key_names, logger)
             if err:
                 return None, err
+            records = [r for r in records if r.get('category_name') == category]
+            rule_group_ids = list(dict.fromkeys(r['rule_group_id'] for r in records if r.get('rule_group_id')))
+            existing = {}
+            if rule_group_ids:
+                existing, err = _get_by_ids(get_client(FirewallManagement).get_rule_groups, rule_group_ids, 'id',
+                                            "get_rule_groups", logger)
+                if err:
+                    return None, f"Failed to read rule groups from Falcon: {err}"
             return {'sanitized' if r.get('rule_format') == RULE_FORMAT_SANITIZED else 'raw'
-                    for r in records if r.get('category_name') == category}, None
+                    for r in records if r.get('rule_group_id') in existing}, None
 
         found = {}  # the rule that blocks the name
         unresolved = []  # (category, why its format could not be resolved)

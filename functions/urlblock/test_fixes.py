@@ -803,6 +803,8 @@ class LegacyRuleFormatTestCase(PolicyChangeBase):
         self.pol.query_combined_policies.return_value = falcon_ok(
             [{"id": "pol-legacy", "name": "P", "platform_name": "Windows", "enabled": True}])
         self.store.objects("domain", "v2.0")["Games"] = {"category": "Games", "domain": "*steam.com"}
+        # the simulator only counts records whose rule group exists in Falcon
+        self.mgmt.get_rule_groups.side_effect = lambda ids: falcon_ok([{"id": i} for i in ids])
 
     def simulate(self, fqdn):
         return policies.simulate_policy(req(query={"fqdn": fqdn}), None, self.logger).body
