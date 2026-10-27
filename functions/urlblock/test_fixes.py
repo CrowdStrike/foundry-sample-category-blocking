@@ -627,21 +627,33 @@ class PolicyLegacyMatchTestCase(PolicyChangeBase):
         self.assertEqual(self.delete({"rule_group_id": "rg-old"}).code, 200)
         self.pol.delete_policies.assert_called_once_with(ids="pol-win")
 
-    def test_health_check_resolves_same_name_legacy_policies_by_rule_group(self):
-        # one entry per policy name: the first record ("a") is checked, and resolves to p2
-        self.store.data[REL] = {"a": {"policy_name": "A", "host_group_id": "hg1", "rule_group_id": "rg-a"},
-                                "b": {"policy_name": "A", "host_group_id": "hg1", "rule_group_id": "rg-b"}}
+    def same_name_health_check(self, mac_rule_groups):
+        """Legacy "P" records of rg-a and rg-b on hg1: a Windows "P" holds rg-a, a disabled Mac "P" on hg1."""
+        self.store.data[REL] = {"a": {"policy_name": "P", "host_group_id": "hg1", "rule_group_id": "rg-a"},
+                                "b": {"policy_name": "P", "host_group_id": "hg1", "rule_group_id": "rg-b"}}
         self.pol.query_combined_policies.return_value = falcon_ok([
-            {"id": "p1", "name": "A", "platform_name": "Windows", "groups": [{"id": "hg1"}]},
-            {"id": "p2", "name": "A", "platform_name": "Mac", "groups": [{"id": "hg1"}]}])
-        self.pol.get_policies.return_value = falcon_ok([{"id": "p2", "enabled": True, "groups": [{"id": "hg1"}]}])
-        self.mgmt.get_policy_containers.side_effect = None
-        self.mgmt.get_policy_containers.return_value = falcon_ok([
-            {"policy_id": "p1", "enforce": True, "rule_group_ids": ["rg-b"]},
-            {"policy_id": "p2", "enforce": True, "rule_group_ids": ["rg-a"]}])
+            {"id": "p-win", "name": "P", "platform_name": "Windows", "groups": [{"id": "hg1"}]},
+            {"id": "p-mac", "name": "P", "platform_name": "Mac", "groups": [{"id": "hg1"}]}])
+        self.pol.get_policies.side_effect = lambda ids: falcon_ok(
+            [{"id": i, "enabled": i == "p-win", "groups": [{"id": "hg1"}]} for i in ids])
+        self.containers({"p-win": ["rg-a"], "p-mac": mac_rule_groups})
+        self.mgmt.get_policy_containers.side_effect = lambda ids, f=self.mgmt.get_policy_containers.side_effect: (
+            falcon_ok([dict(c, enforce=True) for c in f(ids)["body"]["resources"]]))
         resp = policies.health_check(req(), None, self.logger)
-        self.assertEqual(resp.body["policies"][0]["policy_id"], "p2")
-        self.assertEqual(resp.body["healthy_count"], 1)
+        return {p["rule_group_id"]: p for p in resp.body["policies"]}
+
+    def test_health_check_resolves_same_name_legacy_policies_by_rule_group(self):
+        # one entry per name and rule group, resolved as delete-policy and update-policy do
+        entries = self.same_name_health_check(mac_rule_groups=["rg-b"])
+        self.assertEqual(set(entries), {"rg-a", "rg-b"})
+        self.assertEqual((entries["rg-a"]["policy_id"], entries["rg-a"]["status"]), ("p-win", "healthy"))
+        self.assertEqual((entries["rg-b"]["policy_id"], entries["rg-b"]["issues"]), ("p-mac", ["Policy DISABLED"]))
+
+    def test_health_check_finds_legacy_policies_whose_rule_group_was_never_attached(self):
+        entries = self.same_name_health_check(mac_rule_groups=[])
+        self.assertEqual(entries["rg-a"]["policy_id"], "p-win")
+        self.assertEqual((entries["rg-b"]["policy_id"], entries["rg-b"]["issues"]),
+                         ("p-mac", ["Policy DISABLED", "No rule groups attached"]))
 
     def test_legacy_name_lookup_uses_exact_name_and_stored_platform(self):
         self.make_legacy()

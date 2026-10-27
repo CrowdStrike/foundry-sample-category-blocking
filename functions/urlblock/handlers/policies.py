@@ -1090,7 +1090,8 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
             return Response(code=500, body={
                 "error": f"Failed to read relationships: {plural(result['failed'], 'record')} could not be read"})
 
-        # One entry per policy: keyed by policy_id, or by name for legacy records without it
+        # One entry per policy: keyed by policy_id, or for legacy records without it by name and
+        # rule group (same-name legacy policies are told apart by their rule group)
         unique_policies = {}
         for item in result['resources']:
             if not isinstance(item, dict):
@@ -1098,11 +1099,11 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
             policy_name = item.get('policy_name')
             if not policy_name:
                 continue
-            unique_policies.setdefault(item.get('policy_id') or f"name:{policy_name}", item)
+            unique_policies.setdefault(item.get('policy_id') or (policy_name, item.get('rule_group_id')), item)
 
         # Legacy records (no policy_id): resolve by name in batches, with the same matching rule
         # as update-policy and delete-policy
-        legacy_names = [item['policy_name'] for key, item in unique_policies.items() if key.startswith("name:")]
+        legacy_names = [item['policy_name'] for key, item in unique_policies.items() if isinstance(key, tuple)]
         found_by_name, err = _find_policies_by_names(fw_policies, legacy_names, logger)
         if err:
             return Response(code=502, body={"error": f"Failed to look up policies in Falcon: {err}"})
@@ -1115,7 +1116,7 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
         tracked_rule_groups = _tracked_rule_groups([r['_key'] for r in records if r.get('_key')], records)
         resolved, unresolved = {}, {}  # key -> policy_id, key -> why it could not be resolved
         for key, item in unique_policies.items():
-            if key.startswith("name:"):
+            if isinstance(key, tuple):
                 policy, unresolved[key] = _match_legacy_policy(
                     found_by_name.get(item['policy_name'], []), legacy_containers, item.get('rule_group_id'),
                     item.get('platform'), item.get('host_group_id'), tracked_rule_groups)
@@ -1138,7 +1139,8 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
 
         for key, rel_item in unique_policies.items():
             policy_id = resolved[key]
-            pol_info = {"policy_name": rel_item['policy_name'], "policy_id": policy_id, "status": "error", "issues": []}
+            pol_info = {"policy_name": rel_item['policy_name'], "policy_id": policy_id,
+                        "rule_group_id": rel_item.get('rule_group_id'), "status": "error", "issues": []}
 
             pol = policies_by_id.get(policy_id) if policy_id else None
             if not pol:
