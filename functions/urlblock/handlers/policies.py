@@ -956,53 +956,60 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
                 (d for d in sorted(stored)
                  if d.startswith('*') and not d.startswith('*.') and len(d) > 1 and fqdn.endswith(d[1:])), None)
 
-        def _same_either_way(item):
-            entry = _current_entry(item)
-            return entry is not None and entry == _legacy_entry(item)
+        relationship_listing = {}  # listed once, when the format of a category first matters
 
-        # Early return: stop paging at a category that blocks the name however it was deployed.
+        def _deployed_formats(category):
+            """Formats of the rules deployed for a category: (set, None) or (None, error message)."""
+            if not relationship_listing:
+                relationship_listing['keys'], relationship_listing['error'] = _list_relationship_keys(
+                    custom_storage, logger)
+            if relationship_listing['error']:
+                return None, relationship_listing['error']
+            key_names = {category, category_key(category)}
+            records, err = _read_relationships(custom_storage, relationship_listing['keys'],
+                                               lambda parts: parts is None or parts[0] in key_names, logger)
+            if err:
+                return None, err
+            return {'sanitized' if r.get('rule_format') == RULE_FORMAT_SANITIZED else 'raw'
+                    for r in records if r.get('category_name') == category}, None
+
+        found = {}  # the rule that blocks the name
+        unresolved = []  # why the format of a category could not be resolved
+
+        def _blocks(item):
+            current, legacy = _current_entry(item), _legacy_entry(item)
+            if current is None and legacy is None:
+                return False
+            if current == legacy:
+                found['rule'] = current  # blocks the name however the category was deployed
+                return True
+            if not item.get('category'):
+                return False
+            # The raw and sanitized entries match differently: the rules deployed for it decide
+            deployed, err = _deployed_formats(item['category'])
+            if err:
+                unresolved.append(err)  # another category may still block the name
+                return False
+            # A category not deployed yet is checked as this version would deploy it
+            rule = current if not deployed or 'sanitized' in deployed else None
+            if rule is None and 'raw' in deployed:
+                rule = legacy
+            found['rule'] = rule
+            return bool(rule)
+
+        # Early return: stop paging at the first category that blocks the name as it is deployed.
         # The domain collection is read with read_all_objects' default limits.
         result = read_all_objects(custom_storage, 'domain', COLLECTION_DOMAIN_VER,
-                                  stop_when=_same_either_way, logger=logger)
+                                  stop_when=_blocks, logger=logger)
         if "error" in result:
             return Response(code=500, body={"error": "Failed to simulate"})
-
-        def _blocked(item, rule):
-            return Response(code=200, body={"found": True, "category": item.get('category'), "rule": rule,
-                                            "message": f"Blocked by {item.get('category')}",
-                                            "pagination": result["pagination"]})
-
         if result["match"]:
-            return _blocked(result["match"], _current_entry(result["match"]))
-
-        # Categories whose raw and sanitized entries match differently: the rules deployed for
-        # them decide, so only their relationship records are read
-        pending = []
-        for item in result["resources"]:
-            current, legacy = _current_entry(item), _legacy_entry(item)
-            if item.get('category') and current != legacy:
-                pending.append((item, current, legacy))
-        if pending:
-            names = {item['category'] for item, _, _ in pending}
-            key_names = names | {category_key(name) for name in names}
-            keys, err = _list_relationship_keys(custom_storage, logger)
-            records, err = (None, err) if err else _read_relationships(
-                custom_storage, keys, lambda parts: parts is None or parts[0] in key_names, logger)
-            if err:
-                return Response(code=500, body={"error": f"Failed to simulate: {err}"})
-            formats = {}  # category -> formats of the rules deployed for it
-            for record in records:
-                if record.get('category_name') in names:
-                    formats.setdefault(record['category_name'], set()).add(
-                        'sanitized' if record.get('rule_format') == RULE_FORMAT_SANITIZED else 'raw')
-            for item, current, legacy in pending:
-                deployed = formats.get(item['category'], set())
-                # A category not deployed yet is checked as this version would deploy it
-                rule = current if not deployed or 'sanitized' in deployed else None
-                if rule is None and 'raw' in deployed:
-                    rule = legacy
-                if rule:
-                    return _blocked(item, rule)
+            category = result["match"].get('category')
+            return Response(code=200, body={"found": True, "category": category, "rule": found['rule'],
+                                            "message": f"Blocked by {category}",
+                                            "pagination": result["pagination"]})
+        if unresolved:
+            return Response(code=500, body={"error": f"Failed to simulate: {unresolved[0]}"})
 
         # "Not blocked" would be wrong if one of the unread categories blocks the name
         if result["failed"]:

@@ -334,6 +334,36 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.simulate("store.steam.com")  # only *.steam.com, added at deployment, matches
         self.assertTrue(self.relationship_listed())
 
+    def calls(self, kind, collection):
+        return [c for c in self.store.calls if c[:2] == (kind, collection)]
+
+    def simulate_by_pages_of_two(self, fqdn):
+        with patch.object(policies, "read_all_objects", partial(read_all_objects, page_size=2)):
+            return self.simulate(fqdn)
+
+    def test_scan_stops_at_the_first_category_that_blocks_with_its_deployed_format(self):
+        # www.facebook.com only matches "*.facebook.com", which this version adds at deployment: the
+        # format of Facebook decides, and is resolved as soon as Facebook is read
+        self.store.objects(*DOMAIN)["Facebook"] = {"category": "Facebook", "domain": "facebook.com"}
+        fb_key = self.deploy("Facebook", sanitized=True)
+        self.deploy("Search", sanitized=False)
+        resp = self.simulate_by_pages_of_two("www.facebook.com")
+        self.assertEqual((resp.body["category"], resp.body["rule"]), ("Facebook", "*.facebook.com"))
+        self.assertEqual(len(self.calls("list", "domain")), 1)  # first page: Facebook, Games
+        self.assertEqual([c[2] for c in self.calls("get", "domain")], ["Facebook", "Games"])
+        self.assertEqual(len(self.calls("list", "relationship")), 1)
+        self.assertEqual([c[2] for c in self.calls("get", "relationship")], [fb_key])
+
+    def test_relationships_are_listed_once_per_simulation(self):
+        # Facebook only deployed raw ("facebook.com" alone): the scan goes on to "Fb Mirror", not deployed
+        self.store.objects(*DOMAIN)["Facebook"] = {"category": "Facebook", "domain": "facebook.com"}
+        self.store.objects(*DOMAIN)["Fb_Mirror"] = {"category": "Fb Mirror", "domain": "facebook.com"}
+        fb_key = self.deploy("Facebook", sanitized=False)
+        resp = self.simulate_by_pages_of_two("www.facebook.com")
+        self.assertEqual((resp.body["category"], resp.body["rule"]), ("Fb Mirror", "*.facebook.com"))
+        self.assertEqual(len(self.calls("list", "relationship")), 1)
+        self.assertEqual([c[2] for c in self.calls("get", "relationship")], [fb_key])
+
     def test_failed_read_of_a_relevant_relationship_is_an_error(self):
         self.store.fail_get.add(self.deploy("Games", sanitized=False))
         resp = self.simulate("store.steam.com")
