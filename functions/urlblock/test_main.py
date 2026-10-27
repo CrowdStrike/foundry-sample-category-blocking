@@ -339,6 +339,17 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.deploy("Games", sanitized=True, rule_group="rg2")
         self.assertEqual(self.simulate("store.steam.com").body["rule"], "*.steam.com")
 
+    def test_keys_of_another_shape_are_read_once_per_simulation(self):
+        # both Facebook (deployed raw) and "Fb Mirror" need their format: the key that cannot be
+        # attributed by name is read for the first one only
+        self.store.objects(*DOMAIN)["Facebook"] = {"category": "Facebook", "domain": "facebook.com"}
+        self.store.objects(*DOMAIN)["Fb_Mirror"] = {"category": "Fb Mirror", "domain": "facebook.com"}
+        fb_key = self.deploy("Facebook", sanitized=False)
+        self.store.objects(*REL)["unshaped"] = {"category_name": "Other", "rule_group_id": "rg2"}
+        resp = self.simulate_by_pages_of_two("www.facebook.com")
+        self.assertEqual(resp.body["category"], "Fb Mirror")
+        self.assertEqual(sorted(c[2] for c in self.calls("get", "relationship")), [fb_key, "unshaped"])
+
     def test_records_of_a_deleted_rule_group_do_not_count_as_deployed(self):
         # delete-policy deleted the legacy rule group, then one of its records could not be removed:
         # Games is no longer deployed, so it is checked as this version would deploy it

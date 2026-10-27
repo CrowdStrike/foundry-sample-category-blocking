@@ -929,7 +929,7 @@ def _blocking_candidates(fqdn: str) -> list:
 
 
 @FUNC.handler(method='GET', path='/simulate-policy')
-# pylint: disable-next=too-many-return-statements,too-many-locals,too-many-branches
+# pylint: disable-next=too-many-return-statements,too-many-locals,too-many-branches,too-many-statements
 def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
     """Report whether a given FQDN would be blocked by any stored category."""
     try:
@@ -956,7 +956,9 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
                 (d for d in sorted(stored)
                  if d.startswith('*') and not d.startswith('*.') and len(d) > 1 and fqdn.endswith(d[1:])), None)
 
-        relationship_listing = {}  # listed once, when the format of a category first matters
+        # Listed once, when the format of a category first matters; keys of another shape cannot
+        # be attributed to a category by name, so they are read once for every category too
+        relationship_listing = {}
 
         def _deployed_formats(category):
             """
@@ -966,16 +968,18 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
             cleanup names a rule group that no longer exists.
             """
             if not relationship_listing:
-                relationship_listing['keys'], relationship_listing['error'] = _list_relationship_keys(
-                    custom_storage, logger)
+                keys, err = _list_relationship_keys(custom_storage, logger)
+                unshaped, err = (None, err) if err else _read_relationships(
+                    custom_storage, keys, lambda parts: parts is None, logger)
+                relationship_listing.update(keys=keys, unshaped=unshaped, error=err)
             if relationship_listing['error']:
                 return None, relationship_listing['error']
             key_names = {category, category_key(category)}
             records, err = _read_relationships(custom_storage, relationship_listing['keys'],
-                                               lambda parts: parts is None or parts[0] in key_names, logger)
+                                               lambda parts: parts is not None and parts[0] in key_names, logger)
             if err:
                 return None, err
-            records = [r for r in records if r.get('category_name') == category]
+            records = [r for r in records + relationship_listing['unshaped'] if r.get('category_name') == category]
             rule_group_ids = list(dict.fromkeys(r['rule_group_id'] for r in records if r.get('rule_group_id')))
             existing = {}
             if rule_group_ids:
