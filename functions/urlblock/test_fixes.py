@@ -3,12 +3,14 @@
 
 import unittest
 from datetime import datetime, timezone
+from functools import partial
 from unittest.mock import MagicMock, call, patch
 
 from crowdstrike.foundry.function import Request, RequestParams
 
 import main  # noqa: F401  # pylint: disable=unused-import
 from app_utils import (
+    read_all_objects,
     category_key, relationship_key, validate_fqdn, _validate_falcon_response, _sanitize_url_list, plural,
 )
 from conftest import FakeStorage
@@ -1269,6 +1271,20 @@ class PolicyQueryTestCase(PolicyBase):
         self.assertEqual(resp.body["warnings"], ["1 relationship record could not be read, so its policy may be "
                                                  "missing from this report"])
         self.pol.get_policies.assert_called_once_with(ids=["p1"])
+
+    def test_health_check_truncated_relationship_read_is_incomplete(self):
+        # keys are listed alphabetically: two per page and one page leaves "c" unread
+        self.store.data[REL] = {k: {"policy_id": f"p-{k}", "policy_name": k} for k in ("a", "b", "c")}
+        self.pol.get_policies.side_effect = lambda ids: falcon_ok([{"id": i, "enabled": True, "groups": [1]} for i in ids])
+        self.mgmt.get_policy_containers.side_effect = lambda ids: falcon_ok(
+            [{"policy_id": i, "enforce": True, "rule_group_ids": ["r"]} for i in ids])
+        with patch.object(policies, "read_all_objects", partial(read_all_objects, page_size=2, max_pages=1)):
+            resp = policies.health_check(req(), None, self.logger)
+        self.assertEqual(resp.code, 200)
+        self.assertEqual([p["policy_id"] for p in resp.body["policies"]], ["p-a", "p-b"])
+        self.assertEqual((resp.body["incomplete"], resp.body["healthy"]), (True, False))
+        self.assertEqual(resp.body["warnings"], ["only the first 2 relationship records could be read, so some "
+                                                 "policies may be missing from this report"])
 
     def test_health_check_complete_report_has_no_warnings(self):
         self.store.data[REL] = {"a": {"policy_id": "p1", "policy_name": "A"}}

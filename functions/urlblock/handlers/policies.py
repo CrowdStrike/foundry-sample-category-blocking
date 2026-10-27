@@ -1119,6 +1119,9 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
             count = plural(result['failed'], 'relationship record')
             warnings.append(f"{count} could not be read, so {'its policy' if result['failed'] == 1 else 'their policies'} "
                             "may be missing from this report")
+        if result["pagination"]["truncated"]:
+            read = plural(result['pagination']['returned'], 'relationship record')
+            warnings.append(f"only the first {read} could be read, so some policies may be missing from this report")
 
         # One entry per policy: keyed by policy_id, or for legacy records without it by name and
         # rule group (same-name legacy policies are told apart by their rule group)
