@@ -1072,7 +1072,7 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
                     for r in records if r.get('rule_group_id') in deployed}, None
 
         found = {}  # the rule that blocks the name
-        unresolved = []  # (category, why its format could not be resolved)
+        unresolved = {}  # category -> why its format could not be resolved (once per category)
 
         def _blocks(item):
             current, legacy = _current_entry(item), _legacy_entry(item)
@@ -1086,7 +1086,7 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
             # The raw and sanitized entries match differently: the rules deployed for it decide
             deployed, err = _deployed_formats(item['category'])
             if err:
-                unresolved.append((item['category'], err))  # another category may still block the name
+                unresolved[item['category']] = err  # another category may still block the name
                 return False
             # A category not deployed yet is checked as this version would deploy it
             rule = current if not deployed or 'sanitized' in deployed else None
@@ -1109,7 +1109,7 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
 
         # "Not blocked" is only certain when every category could be read and checked: otherwise
         # the result says what could not be (no category read at all is an error, above)
-        warnings = [f"whether {category} blocks it could not be determined ({err})" for category, err in unresolved]
+        warnings = [f"whether {category} blocks it could not be determined ({err})" for category, err in unresolved.items()]
         if result["failed"]:
             warnings.append(f"{plural(result['failed'], 'category', 'categories')} could not be read")
         if result["pagination"]["truncated"]:

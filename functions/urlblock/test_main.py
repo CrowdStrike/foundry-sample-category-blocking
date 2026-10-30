@@ -474,6 +474,13 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertEqual(resp.body["warnings"], [warning])
         self.assertEqual(resp.body["message"], f"Not blocked by the categories that could be checked, but {warning}")
 
+    def test_a_category_whose_format_cannot_be_resolved_is_reported_once(self):
+        for key in ("Facebook", "Facebook_old"):
+            self.store.objects(*DOMAIN)[key] = {"category": "Facebook", "domain": "facebook.com"}
+        self.store.fail_get.add(self.deploy("Facebook", sanitized=False))
+        self.assert_not_confirmed(self.simulate("www.facebook.com"), "whether Facebook blocks it could not be "
+                                                                     "determined (Some relationships could not be read)")
+
     def test_failed_read_of_a_relevant_relationship_leaves_the_result_incomplete(self):
         self.store.fail_get.add(self.deploy("Games", sanitized=False))
         self.assert_not_confirmed(self.simulate("store.steam.com"),
