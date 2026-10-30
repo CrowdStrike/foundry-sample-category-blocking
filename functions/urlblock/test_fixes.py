@@ -86,9 +86,19 @@ class PolicyBase(unittest.TestCase):
         self.mgmt.delete_rule_groups.return_value = OK
         self.pol.delete_policies.return_value = OK
         self.pol.update_policies.return_value = OK
+        # get_rule_groups: the platform of each rule group, which it keeps once deleted (deleted: true).
+        # A rule group not listed here is not returned (a 200 without it)
+        self.rule_group_platforms = {"rg-old": "windows"}
+        self.deleted_rule_groups = set()
+        self.mgmt.get_rule_groups.side_effect = lambda ids: falcon_ok([
+            {"id": i, "platform": self.rule_group_platforms[i], "deleted": i in self.deleted_rule_groups}
+            for i in ids if i in self.rule_group_platforms])
 
     def rel(self):
         return self.store.objects(*REL)
+
+    # the legacy policy "P", as Falcon returns it from query_combined_policies
+    legacy_policy = {"id": "pol-legacy", "name": "P", "platform_name": "Windows", "enabled": True}
 
     create_body = {
         "hostGroupId": "hg1", "hostGroupName": "Hosts", "policyName": "P", "platform": "windows",
@@ -389,7 +399,7 @@ class PolicyUpdateTestCase(PolicyChangeBase):
 
     def assert_legacy_update_changes_nothing(self):
         self.make_legacy()
-        self.pol.query_combined_policies.return_value = falcon_ok([{"id": "pol-legacy", "name": "P", "enabled": True}])
+        self.pol.query_combined_policies.return_value = falcon_ok([dict(self.legacy_policy)])
         resp = self.update(dict(self.update_body, platform=""))
         self.assertEqual(resp.code, 500)
         self.assertEqual(resp.body["error"], "Failed to record the current policy id. Nothing was changed.")
@@ -536,7 +546,9 @@ class PolicyUpdateTestCase(PolicyChangeBase):
         self.pol.create_policies.assert_not_called()
 
     def test_update_legacy_policy_without_platform_is_rejected(self):
+        # neither the records, the policy nor Falcon's answer for the rule group give the platform
         self.make_legacy()
+        self.rule_group_platforms.clear()
         self.pol.query_combined_policies.return_value = falcon_ok([{"id": "pol-legacy", "name": "P"}])
         resp = self.update(dict(self.update_body, platform="windows"))
         self.assertEqual(resp.code, 400)
@@ -628,6 +640,7 @@ class PolicyLegacyMatchTestCase(PolicyChangeBase):
             {"id": "pol-win", "name": "P", "platform_name": "Windows", "enabled": True, "groups": [{"id": "hg1"}]},
             {"id": "pol-mac", "name": "P", "platform_name": "Mac", "enabled": True, "groups": [{"id": "hg1"}]}])
         self.containers({"pol-win": ["rg-win"], "pol-mac": ["rg-old"]})
+        self.rule_group_platforms["rg-old"] = "mac"
         resp = self.delete({"rule_group_id": "rg-old", "platform": "windows"})
         self.assertEqual(resp.code, 200)
         self.pol.delete_policies.assert_called_once_with(ids="pol-mac")
@@ -686,6 +699,7 @@ class PolicyLegacyMatchTestCase(PolicyChangeBase):
         self.pol.get_policies.side_effect = lambda ids: falcon_ok(
             [{"id": i, "enabled": i == "p-win", "groups": [{"id": "hg1"}]} for i in ids])
         self.containers({"p-win": ["rg-a"], "p-mac": mac_rule_groups})
+        self.rule_group_platforms.update({"rg-a": "windows", "rg-b": "mac"})
         self.mgmt.get_policy_containers.side_effect = lambda ids, f=self.mgmt.get_policy_containers.side_effect: (
             falcon_ok([dict(c, enforce=True) for c in f(ids)["body"]["resources"]]))
         resp = policies.health_check(req(), None, self.logger)
@@ -853,6 +867,123 @@ class PolicyLegacyFallbackTestCase(PolicyChangeBase):
         self.assertEqual(self.touched_policies(), set())
         self.mgmt.delete_rule_groups.assert_called_once_with(ids=["rg-old"])
         self.assertEqual(set(self.rel()), {"other", "Games_rg-new_hg1"})
+
+
+class PolicyLegacyPlatformTestCase(PolicyChangeBase):
+    """Legacy records store no platform: it is read from their rule group in Falcon."""
+
+    def setUp(self):
+        super().setUp()
+        self.pol.get_policies.side_effect = lambda ids: falcon_ok(
+            [{"id": i, "enabled": True, "groups": [{"id": "hg1"}]} for i in ids])
+
+    def legacy_records(self, **rule_groups):
+        """Legacy records of "P" on hg1 (no policy_id, no platform), one per {category: rule group}."""
+        self.store.data[REL] = {f"{category}_{rg}_hg1": {"category_name": category, "rule_group_id": rg,
+                                                         "host_group_id": "hg1", "policy_name": "P"}
+                                for category, rg in rule_groups.items()}
+
+    def policies_named_p(self, **platforms):
+        """query_combined_policies: an enabled "P" on hg1 per {policy id: platform}, all with empty containers."""
+        self.pol.query_combined_policies.return_value = falcon_ok([
+            {"id": pid, "name": "P", "platform_name": platform, "enabled": True, "groups": [{"id": "hg1"}]}
+            for pid, platform in platforms.items()])
+        self.containers({}, default=())
+
+    def health_entries(self):
+        resp = policies.health_check(req(), None, self.logger)
+        self.assertEqual(resp.code, 200)
+        return {p["rule_group_id"]: p for p in resp.body["policies"]}
+
+    def assert_mac_policy_gone(self):
+        resp = self.delete({"rule_group_id": "rg-mac"})
+        self.assertEqual((resp.code, resp.body["warnings"]), (200, []))
+        self.assertEqual(self.touched_policies(), set())
+        self.mgmt.delete_rule_groups.assert_called_once_with(ids=["rg-mac"])
+        self.assertEqual(self.rel(), {})
+        self.mgmt.get_rule_groups.assert_called_once_with(ids=["rg-mac"])
+
+    def test_delete_never_takes_a_same_name_policy_on_another_platform(self):
+        # the legacy Mac "P" of rg-mac was deleted by hand; an unrelated Windows "P" with an empty
+        # container is on hg1: it is never disabled or deleted
+        self.legacy_records(Games="rg-mac")
+        self.rule_group_platforms["rg-mac"] = "mac"
+        self.policies_named_p(**{"pol-win": "Windows"})
+        self.assert_mac_policy_gone()
+
+    def test_a_deleted_rule_group_still_gives_its_platform(self):
+        # Falcon keeps returning a deleted rule group, with deleted: true and its platform
+        self.legacy_records(Games="rg-mac")
+        self.rule_group_platforms["rg-mac"] = "mac"
+        self.deleted_rule_groups.add("rg-mac")
+        self.policies_named_p(**{"pol-win": "Windows"})
+        self.assert_mac_policy_gone()
+
+    def two_unattached_policies(self):
+        """A Windows "P" for rg-win and a Mac "P" for rg-mac, both on hg1, neither rule group ever attached."""
+        self.legacy_records(Games="rg-win", News="rg-mac")
+        self.rule_group_platforms.update({"rg-win": "windows", "rg-mac": "mac"})
+        self.policies_named_p(**{"pol-win": "Windows", "pol-mac": "Mac"})
+
+    def test_delete_resolves_same_name_policies_by_the_platform_of_their_rule_group(self):
+        self.two_unattached_policies()
+        for rule_group_id, policy_id in (("rg-mac", "pol-mac"), ("rg-win", "pol-win")):
+            self.pol.reset_mock()
+            resp = self.delete({"rule_group_id": rule_group_id})
+            self.assertEqual(resp.code, 200)
+            self.assertEqual(self.touched_policies(), {policy_id})
+        self.assertEqual(self.rel(), {})
+
+    def test_update_resolves_same_name_policies_by_the_platform_of_their_rule_group(self):
+        self.two_unattached_policies()
+        cases = (("rg-mac", "pol-mac", "Mac", "pol-win"), ("rg-win", "pol-win", "Windows", "pol-mac"))
+        for rule_group_id, policy_id, platform_name, other_policy_id in cases:
+            self.pol.reset_mock()
+            resp = self.update(dict(self.update_body, ruleGroupId=rule_group_id, platform=""))
+            self.assertEqual(resp.code, 200)
+            self.assertEqual(self.pol.create_policies.call_args.kwargs["platform_name"], platform_name)
+            self.pol.delete_policies.assert_called_once_with(ids=policy_id)
+            self.assertNotIn(other_policy_id, self.touched_policies())
+
+    def test_health_check_resolves_same_name_policies_by_the_platform_of_their_rule_group(self):
+        self.two_unattached_policies()
+        entries = self.health_entries()
+        self.assertEqual({rg: e["policy_id"] for rg, e in entries.items()}, {"rg-win": "pol-win", "rg-mac": "pol-mac"})
+        self.mgmt.get_rule_groups.assert_called_once()
+        self.assertEqual(sorted(self.mgmt.get_rule_groups.call_args.kwargs["ids"]), ["rg-mac", "rg-win"])
+
+    def assert_nothing_changed(self, resp, code):
+        self.assertEqual(resp.code, code)
+        self.pol.create_policies.assert_not_called()
+        self.assertEqual(self.touched_policies(), set())
+        self.mgmt.delete_rule_groups.assert_not_called()
+        self.assertEqual(set(self.rel()), {"Games_rg-old_hg1"})
+        self.assertNotIn("policy_id", self.rel()["Games_rg-old_hg1"])
+
+    def test_rule_group_read_failure_changes_nothing(self):
+        self.legacy_records(Games="rg-old")
+        self.policies_named_p(**{"pol-legacy": "Windows"})  # would be taken once the platform is confirmed
+        self.mgmt.get_rule_groups.side_effect = lambda ids: {"status_code": 500, "body": {"errors": [{"message": "down"}]}}
+        for resp in (self.update(dict(self.update_body, platform="")), self.delete({"rule_group_id": "rg-old"})):
+            self.assertIn("Failed to read rule group rg-old from Falcon: down. Nothing was", resp.body["error"])
+            self.assert_nothing_changed(resp, 502)
+        resp = policies.health_check(req(), None, self.logger)
+        self.assertEqual((resp.code, resp.body["error"]), (502, "Failed to read rule groups from Falcon: down"))
+
+    def test_rule_group_not_returned_leaves_the_platform_unconfirmed(self):
+        self.legacy_records(Games="rg-old")
+        self.policies_named_p(**{"pol-legacy": "Windows"})
+        error = ("1 Falcon policy named 'P' (pol-legacy) may be the policy of rule group rg-old, but it cannot be "
+                 "confirmed: Falcon did not return the rule group, so its platform is unknown. Check it in Falcon")
+        not_returned = {"200 without it": lambda ids: falcon_ok([]),
+                        "404": lambda ids: {"status_code": 404, "body": {"errors": [{"message": "not found"}]}}}
+        for case, response in not_returned.items():
+            with self.subTest(case):
+                self.mgmt.get_rule_groups.side_effect = response
+                for resp in (self.update(dict(self.update_body, platform="")), self.delete({"rule_group_id": "rg-old"})):
+                    self.assertIn(error, resp.body["error"])
+                    self.assert_nothing_changed(resp, 409)
+                self.assertEqual(self.health_entries()["rg-old"]["issues"], [error])
 
 
 class LegacyRuleFormatTestCase(PolicyChangeBase):
@@ -1071,7 +1202,7 @@ class PolicyDeleteTestCase(PolicyChangeBase):
 
     def test_delete_legacy_record_resolves_policy_by_name(self):
         self.make_legacy()
-        self.pol.query_combined_policies.return_value = falcon_ok([{"id": "pol-legacy", "name": "P", "enabled": True}])
+        self.pol.query_combined_policies.return_value = falcon_ok([dict(self.legacy_policy)])
         self.assertEqual(self.delete({"rule_group_id": "rg-old"}).code, 200)
         self.pol.delete_policies.assert_called_once_with(ids="pol-legacy")
         self.pol.get_policies.assert_not_called()
@@ -1096,7 +1227,7 @@ class PolicyDeleteTestCase(PolicyChangeBase):
 
     def test_delete_legacy_policy_id_write_failure_deletes_nothing(self):
         self.make_legacy()
-        self.pol.query_combined_policies.return_value = falcon_ok([{"id": "pol-legacy", "name": "P", "enabled": True}])
+        self.pol.query_combined_policies.return_value = falcon_ok([dict(self.legacy_policy)])
         self.store.fail_put.add("old2")
         resp = self.delete({"rule_group_id": "rg-old"})
         self.assertEqual(resp.code, 500)
@@ -1164,7 +1295,7 @@ class PolicyDeleteTestCase(PolicyChangeBase):
 
     def test_failed_read_of_another_rule_group_record_does_not_block_legacy_records(self):
         self.make_legacy()
-        self.pol.query_combined_policies.return_value = falcon_ok([{"id": "pol-legacy", "name": "P", "enabled": True}])
+        self.pol.query_combined_policies.return_value = falcon_ok([dict(self.legacy_policy)])
         self.add_record("News_rg-x_hg9", "rg-x")
         self.store.fail_get.add("News_rg-x_hg9")
         self.assertEqual(self.delete({"rule_group_id": "rg-old"}).code, 200)

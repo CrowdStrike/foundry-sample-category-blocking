@@ -302,6 +302,21 @@ def _group_ids(policy):
     return {g.get('id') if isinstance(g, dict) else g for g in policy.get('groups') or []}
 
 
+def _rule_group_platforms(mgmt, rule_group_ids, logger=None):
+    """
+    The platform of each rule group in Falcon: ({rule group id: platform}, None) or (None, error
+    message). Legacy records store no platform, but their rule group does, even once deleted
+    (get_rule_groups keeps returning it, with deleted: true). A rule group Falcon does not return
+    (a 404, or a 200 without it) has no confirmed platform, so it is left out.
+    """
+    rule_groups, err = _get_by_ids(mgmt.get_rule_groups, list(dict.fromkeys(rule_group_ids)), 'id',
+                                   "get_rule_groups", logger)
+    if err:
+        return None, err
+    platforms = {rg_id: (rule_group.get('platform') or '').lower() for rg_id, rule_group in rule_groups.items()}
+    return {rg_id: platform for rg_id, platform in platforms.items() if platform in PLATFORM_NAMES}, None
+
+
 def _unconfirmed_error(candidates, rule_group_id, reason):
     """Error for same-name policies that may be the legacy policy of a rule group, but cannot be confirmed."""
     one = len(candidates) == 1
@@ -317,20 +332,22 @@ def _match_legacy_policy(candidates, containers_by_id, rule_group_id, platform=N
     """
     The policy a legacy record refers to, among the Falcon policies with its name:
     (policy or None when none of them is it, error message or None). Only stored data decides:
-    policies on another platform than the stored one are ignored, and the policy should hold the
-    record's rule group in its Falcon container (`containers_by_id`), so an unrelated policy
-    that shares the name, or a replacement renamed to it, is never matched. Several such
-    policies are narrowed by the stored host group; any remaining ambiguity is an error.
+    policies on another platform than `platform` (the stored one, or else that of the record's
+    rule group in Falcon) are ignored, and the policy should hold the record's rule group in its
+    Falcon container (`containers_by_id`), so an unrelated policy that shares the name, or a
+    replacement renamed to it, is never matched. Several such policies are narrowed by the
+    stored host group; any remaining ambiguity is an error.
 
     Earlier versions did not check that the rule group was attached, so a legacy policy may
     hold none. When no policy holds it, a policy that holds a rule group this app tracks
     (`tracked_rule_groups`, e.g. a replacement created by update-policy) is never it. Among the
-    others, the policy is the only one with the name on the stored host group, but only if its
-    container is empty: one that holds untracked rule groups (e.g. a replacement whose records
-    could not be written), has no container in Falcon's answer, or shares that host group with
-    another candidate cannot be confirmed, which is an error. So is any candidate left when none
-    is on the stored host group (none is stored, or the policy was moved): it may be the legacy
-    policy, still enforcing. Only when no candidate is left does the policy no longer exist.
+    others, the policy is the only one with the name on the stored host group, but only if the
+    platform is known and its container is empty: one that holds untracked rule groups (e.g. a
+    replacement whose records could not be written), has no container in Falcon's answer, or
+    shares that host group with another candidate cannot be confirmed, which is an error. So is
+    any candidate left when the platform is unknown or none is on the stored host group (none is
+    stored, or the policy was moved): it may be the legacy policy, still enforcing. Only when no
+    candidate is left does the policy no longer exist.
 
     Residual risk: a policy created by this version, with the same name on the same host group,
     whose rule group was detached by hand in Falcon has an empty container and holds no tracked
@@ -353,6 +370,9 @@ def _match_legacy_policy(candidates, containers_by_id, rule_group_id, platform=N
     candidates = [p for p in candidates if not set(_rule_groups(p)) & set(tracked_rule_groups)]
     if not candidates:
         return None, None
+    if platform not in PLATFORM_NAMES:
+        return None, _unconfirmed_error(candidates, rule_group_id,
+                                        "Falcon did not return the rule group, so its platform is unknown")
     on_host_group = [p for p in candidates if host_group_id and host_group_id in _group_ids(p)]
     if not on_host_group:
         if not host_group_id:
@@ -392,12 +412,14 @@ def _read_policy(fw_policies, policy_id, operation_name, logger=None):
     return dict(resources[0], id=policy_id), None
 
 
+# pylint: disable-next=too-many-return-statements
 def _current_policy(fw_policies, mgmt, records, tracked_rule_groups, logger=None):
     """
     The Falcon policy of a rule group, taken only from its stored relationship records (never
     from the request), or resolved by name for records written before policy_id was stored:
     the policy with that name whose Falcon container holds the stored rule group, or else the
     only one on the stored host group with an empty container (see _match_legacy_policy).
+    Their platform, when the records lack it, is read from the rule group in Falcon.
     Returns (policy or None when it does not exist, None) or (None, (HTTP status, error message)).
     """
     def _stored(field):
@@ -414,14 +436,21 @@ def _current_policy(fw_policies, mgmt, records, tracked_rule_groups, logger=None
     if err:
         return None, (502, err)
     candidates = found.get(policy_name, [])
+    rule_group_id = _stored('rule_group_id')
+    platform = _stored('platform')
     containers_by_id = {}
     if candidates:
         containers_by_id, err = _get_by_ids(mgmt.get_policy_containers, [p.get('id') for p in candidates],
                                             'policy_id', "get_policy_containers", logger)
         if err:
             return None, (502, err)
-    policy, err = _match_legacy_policy(candidates, containers_by_id, _stored('rule_group_id'),
-                                       _stored('platform'), _stored('host_group_id'), tracked_rule_groups)
+        if platform not in PLATFORM_NAMES:
+            platforms, err = _rule_group_platforms(mgmt, [rule_group_id], logger)
+            if err:
+                return None, (502, f"Failed to read rule group {rule_group_id} from Falcon: {err}")
+            platform = platforms.get(rule_group_id)
+    policy, err = _match_legacy_policy(candidates, containers_by_id, rule_group_id,
+                                       platform, _stored('host_group_id'), tracked_rule_groups)
     if err:
         return None, (409, err)
     return policy, None
@@ -1196,14 +1225,26 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
                                              "get_policy_containers", logger)
         if err:
             return Response(code=502, body={"error": f"Failed to read policy containers from Falcon: {err}"})
+        # Without a stored platform, that of the rule group in Falcon (as for update and delete)
+        legacy_rule_groups = [item['rule_group_id'] for key, item in unique_policies.items()
+                              if isinstance(key, tuple) and found_by_name.get(item['policy_name'])
+                              and item.get('rule_group_id') and item.get('platform') not in PLATFORM_NAMES]
+        rule_group_platforms = {}
+        if legacy_rule_groups:
+            rule_group_platforms, err = _rule_group_platforms(mgmt, legacy_rule_groups, logger)
+            if err:
+                return Response(code=502, body={"error": f"Failed to read rule groups from Falcon: {err}"})
         records = [item for item in result['resources'] if isinstance(item, dict)]
         tracked_rule_groups = _tracked_rule_groups([r['_key'] for r in records if r.get('_key')], records)
         resolved, unresolved = {}, {}  # key -> policy_id, key -> why it could not be resolved
         for key, item in unique_policies.items():
             if isinstance(key, tuple):
+                platform = item.get('platform')
+                if platform not in PLATFORM_NAMES:
+                    platform = rule_group_platforms.get(item.get('rule_group_id'))
                 policy, unresolved[key] = _match_legacy_policy(
                     found_by_name.get(item['policy_name'], []), legacy_containers, item.get('rule_group_id'),
-                    item.get('platform'), item.get('host_group_id'), tracked_rule_groups)
+                    platform, item.get('host_group_id'), tracked_rule_groups)
                 resolved[key] = policy.get('id') if policy else None
             else:
                 resolved[key] = key
