@@ -806,13 +806,53 @@ class PolicyLegacyFallbackTestCase(PolicyChangeBase):
             self.assertIn("no policy container", resp.body["error"])
             self.assert_nothing_changed(resp)
 
-    def test_no_fallback_without_a_stored_host_group(self):
+    def test_same_name_policy_is_a_conflict_without_a_stored_host_group(self):
+        # it may be the legacy policy, enforcing: deleting the rule group and records would orphan it
         for key in ("old1", "old2"):
             self.rel()[key].pop("host_group_id")
         self.policies_named_p("pol-legacy")
         self.containers({"pol-legacy": []})
-        self.assertEqual(self.delete({"rule_group_id": "rg-old", "hostGroupId": "hg1"}).code, 200)
+        resp = self.delete({"rule_group_id": "rg-old", "hostGroupId": "hg1"})
+        self.assertEqual(resp.body["error"], (
+            "Failed to look up the policy: 1 Falcon policy named 'P' (pol-legacy) may be the policy of rule group "
+            "rg-old, but it cannot be confirmed: no host group is stored for the rule group. Check it in Falcon. "
+            "Nothing was deleted."))
+        self.assert_nothing_changed(resp)
+
+    def test_same_name_policy_moved_to_another_host_group_is_a_conflict(self):
+        self.pol.query_combined_policies.return_value = falcon_ok([
+            {"id": pid, "name": "P", "platform_name": "Windows", "enabled": True, "groups": [{"id": hg}]}
+            for pid, hg in (("pol-a", "hg2"), ("pol-b", "hg3"))])
+        self.containers({}, default=())
+        for resp in (self.update(dict(self.update_body, platform="")), self.delete({"rule_group_id": "rg-old"})):
+            self.assertIn("2 Falcon policies named 'P' (pol-a, pol-b) may be the policy of rule group rg-old, but none "
+                          "can be confirmed: none is on its host group hg1. Check them in Falcon.", resp.body["error"])
+            self.assert_nothing_changed(resp)
+        health = policies.health_check(req(), None, self.logger).body
+        entry = next(p for p in health["policies"] if p["rule_group_id"] == "rg-old")
+        self.assertEqual((entry["policy_id"], entry["status"]), (None, "error"))
+        self.assertIn("none can be confirmed", entry["issues"][0])
+
+    def test_policy_on_the_stored_host_group_is_used_over_a_same_name_one_elsewhere(self):
+        self.pol.query_combined_policies.return_value = falcon_ok([
+            {"id": pid, "name": "P", "platform_name": "Windows", "enabled": True, "groups": [{"id": hg}]}
+            for pid, hg in (("pol-legacy", "hg1"), ("pol-elsewhere", "hg2"))])
+        self.containers({"pol-legacy": [], "pol-elsewhere": []})
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(self.touched_policies(), {"pol-legacy"})
+        self.assertEqual(set(self.rel()), {"other"})
+
+    def test_leftover_legacy_record_without_a_host_group_never_matches_the_replacement(self):
+        # the replacement holds rg-new, which this app tracks: it is never a candidate, so the
+        # leftover record's policy is gone and the record is cleaned up
+        self.update_without_the_old_policy()
+        self.rel()["old2"].pop("host_group_id")
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual(resp.code, 200)
         self.assertEqual(self.touched_policies(), set())
+        self.mgmt.delete_rule_groups.assert_called_once_with(ids=["rg-old"])
+        self.assertEqual(set(self.rel()), {"other", "Games_rg-new_hg1"})
 
 
 class LegacyRuleFormatTestCase(PolicyChangeBase):

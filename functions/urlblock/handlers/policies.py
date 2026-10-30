@@ -302,6 +302,15 @@ def _group_ids(policy):
     return {g.get('id') if isinstance(g, dict) else g for g in policy.get('groups') or []}
 
 
+def _unconfirmed_error(candidates, rule_group_id, reason):
+    """Error for same-name policies that may be the legacy policy of a rule group, but cannot be confirmed."""
+    one = len(candidates) == 1
+    ids = ', '.join(str(p.get('id')) for p in candidates)
+    return (f"{plural(len(candidates), 'Falcon policy', 'Falcon policies')} named '{candidates[0].get('name')}' "
+            f"({ids}) may be the policy of rule group {rule_group_id}, but {'it cannot' if one else 'none can'} "
+            f"be confirmed: {reason}. Check {'it' if one else 'them'} in Falcon")
+
+
 # pylint: disable-next=too-many-arguments,too-many-return-statements
 def _match_legacy_policy(candidates, containers_by_id, rule_group_id, platform=None, host_group_id=None,
                          tracked_rule_groups=frozenset()):
@@ -314,12 +323,14 @@ def _match_legacy_policy(candidates, containers_by_id, rule_group_id, platform=N
     policies are narrowed by the stored host group; any remaining ambiguity is an error.
 
     Earlier versions did not check that the rule group was attached, so a legacy policy may
-    hold none. When no policy holds it, the policy is the only one with the name on the stored
-    host group, but only if its container is empty: one that holds a rule group this app tracks
-    (`tracked_rule_groups`, e.g. a replacement created by update-policy) is never it, and one
-    that holds untracked rule groups (e.g. a replacement whose records could not be written),
-    has no container in Falcon's answer, or shares that host group with another candidate
-    cannot be confirmed, which is an error. Without a stored host group there is no fallback.
+    hold none. When no policy holds it, a policy that holds a rule group this app tracks
+    (`tracked_rule_groups`, e.g. a replacement created by update-policy) is never it. Among the
+    others, the policy is the only one with the name on the stored host group, but only if its
+    container is empty: one that holds untracked rule groups (e.g. a replacement whose records
+    could not be written), has no container in Falcon's answer, or shares that host group with
+    another candidate cannot be confirmed, which is an error. So is any candidate left when none
+    is on the stored host group (none is stored, or the policy was moved): it may be the legacy
+    policy, still enforcing. Only when no candidate is left does the policy no longer exist.
 
     Residual risk: a policy created by this version, with the same name on the same host group,
     whose rule group was detached by hand in Falcon has an empty container and holds no tracked
@@ -339,12 +350,16 @@ def _match_legacy_policy(candidates, containers_by_id, rule_group_id, platform=N
     if holding:
         return holding[0], None
 
-    if not host_group_id:
+    candidates = [p for p in candidates if not set(_rule_groups(p)) & set(tracked_rule_groups)]
+    if not candidates:
         return None, None
-    on_host_group = [p for p in candidates if host_group_id in _group_ids(p)
-                     and not set(_rule_groups(p)) & set(tracked_rule_groups)]
+    on_host_group = [p for p in candidates if host_group_id and host_group_id in _group_ids(p)]
     if not on_host_group:
-        return None, None
+        if not host_group_id:
+            reason = "no host group is stored for the rule group"
+        else:
+            reason = f"{'it is not' if len(candidates) == 1 else 'none is'} on its host group {host_group_id}"
+        return None, _unconfirmed_error(candidates, rule_group_id, reason)
     name = on_host_group[0].get('name')
     if len(on_host_group) > 1:
         return None, (f"{len(on_host_group)} Falcon policies named '{name}' are on host group {host_group_id} "
