@@ -1234,11 +1234,19 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
             rule_group_platforms, err = _rule_group_platforms(mgmt, legacy_rule_groups, logger)
             if err:
                 return Response(code=502, body={"error": f"Failed to read rule groups from Falcon: {err}"})
-        records = [item for item in result['resources'] if isinstance(item, dict)]
-        tracked_rule_groups = _tracked_rule_groups([r['_key'] for r in records if r.get('_key')], records)
+        # The rule groups this app tracks come from the key listing, as for update and delete: the key
+        # of a record that could not be read still names its rule group
+        tracked_rule_groups, tracked_error = frozenset(), None
+        if any(found_by_name.get(item['policy_name']) for key, item in unique_policies.items() if isinstance(key, tuple)):
+            keys, tracked_error = _list_relationship_keys(custom_storage, logger)
+            if not tracked_error:
+                records = [item for item in result['resources'] if isinstance(item, dict)]
+                tracked_rule_groups = _tracked_rule_groups(keys, records)
         resolved, unresolved = {}, {}  # key -> policy_id, key -> why it could not be resolved
         for key, item in unique_policies.items():
-            if isinstance(key, tuple):
+            if isinstance(key, tuple) and tracked_error and found_by_name.get(item['policy_name']):
+                resolved[key], unresolved[key] = None, f"{tracked_error}, so the policy could not be resolved"
+            elif isinstance(key, tuple):
                 platform = item.get('platform')
                 if platform not in PLATFORM_NAMES:
                     platform = rule_group_platforms.get(item.get('rule_group_id'))

@@ -805,6 +805,31 @@ class PolicyLegacyFallbackTestCase(PolicyChangeBase):
         self.mgmt.delete_rule_groups.assert_not_called()
         self.assertIn("old2", self.rel())
 
+    def test_health_check_and_delete_agree_on_a_leftover_record_when_the_replacement_record_is_unreadable(self):
+        # rg-new's record cannot be read, but its key still names rg-new: in both, the renamed
+        # replacement holds a tracked rule group, so the leftover record's policy is gone
+        self.update_without_the_old_policy()
+        self.store.fail_get.add("Games_rg-new_hg1")
+        health = policies.health_check(req(), None, self.logger).body
+        entry = next(p for p in health["policies"] if p["rule_group_id"] == "rg-old")
+        self.assertEqual((entry["policy_id"], entry["issues"]), (None, ["Policy not found in Falcon"]))
+        self.assertEqual(health["warnings"], ["1 relationship record could not be read, so its policy may be "
+                                              "missing from this report"])
+
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(self.touched_policies(), set())
+        self.assertEqual(set(self.rel()), {"other", "Games_rg-new_hg1"})
+
+    def test_health_check_reports_legacy_policies_unresolved_when_the_keys_cannot_be_listed(self):
+        self.policies_named_p("pol-legacy")
+        self.containers({"pol-legacy": []})
+        with patch.object(policies, "_list_relationship_keys", return_value=(None, "Failed to read relationships")):
+            health = policies.health_check(req(), None, self.logger).body
+        entry = next(p for p in health["policies"] if p["rule_group_id"] == "rg-old")
+        self.assertEqual((entry["policy_id"], entry["issues"]),
+                         (None, ["Failed to read relationships, so the policy could not be resolved"]))
+
     def test_several_policies_with_the_name_on_the_host_group_change_nothing(self):
         self.policies_named_p("pol-a", "pol-b")
         self.containers({}, default=())
