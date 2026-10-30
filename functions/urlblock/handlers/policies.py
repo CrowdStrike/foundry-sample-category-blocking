@@ -544,20 +544,21 @@ def _whitelist_error(whitelist_raw):
     sanitized would get no rule, so the domains meant to stay allowed would be blocked.
     """
     if whitelist_raw and not _sanitize_url_list(whitelist_raw, separator=';'):
-        return "No valid domain in the whitelist"
+        return "No valid domain in the whitelist. Only domain names are supported, not IP addresses"
     return None
 
 
 def _build_rules_list(policy_name, categories, whitelist_raw):
     """
-    Build the firewall rules for a policy from its whitelist and categories, which
-    _whitelist_error and _categories_error have accepted: each has a valid domain, so each gets a rule.
+    Build the firewall rules for a policy from its whitelist and categories. Each category has
+    a valid domain (_categories_error); a whitelist may have none when update-policy keeps a
+    policy's stored whitelist unchanged, and then gets no rule, as before.
     """
     rules_list = []
     temp_counter = 0
 
-    if whitelist_raw:
-        wl_urls = _sanitize_url_list(whitelist_raw, separator=';')
+    wl_urls = _sanitize_url_list(whitelist_raw, separator=';') if whitelist_raw else []
+    if wl_urls:
         rules_list.append(_build_rule("whitelist_allow", "ALLOW", ';'.join(wl_urls), str(temp_counter),
                                       f"Whitelist for {policy_name}"))
         temp_counter += 1
@@ -739,6 +740,25 @@ def list_policies(_: Request, __: dict, logger: Logger) -> Response:
         return Response(code=500, body={"error": "Failed to list policies"})
 
 
+def _forget_records(records, rule_group_id, custom_storage, logger):
+    """
+    delete-policy with forget_record: remove this app's records for the rule group and change
+    nothing in Falcon. Only for legacy records, whose policy may be unconfirmable (409); a record
+    with a policy_id is always resolved by id, so forgetting it would leave its policy untracked.
+    """
+    if any(r.get('policy_id') for r in records):
+        return Response(code=400, body={"error": "forget_record only applies to records without a policy id. "
+                                                 "Delete the policy normally instead."})
+    deleted = _delete_relationship_records(records, custom_storage, logger)
+    if deleted < len(records):
+        return Response(code=500, body={"error": f"{plural(len(records) - deleted, 'relationship record')} "
+                                                 "could not be removed. Please retry."})
+    logger.info(f"Delete-policy forgot RG={rule_group_id}: relations deleted={deleted}, Falcon unchanged")
+    return Response(code=200, body={"success": True, "relationsDeleted": deleted, "warnings": [
+        f"Removed from this app only. Nothing was changed in Falcon: check whether rule group "
+        f"{rule_group_id} or its policy still exists there, and delete them in Falcon if they do."]})
+
+
 @FUNC.handler(method='POST', path='/delete-policy')
 # pylint: disable-next=too-many-return-statements,too-many-locals
 def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
@@ -748,11 +768,16 @@ def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
     The policy to delete is resolved from the rule group's stored relationship records, never
     taken from the request. Relationships are removed only when both Falcon deletions succeed,
     so a failed deletion leaves the policy visible in /list-policies and can be retried.
+
+    With `forget_record: true`, only this app's relationship records for the rule group are
+    removed and nothing in Falcon is changed. It is the way out for a legacy record whose policy
+    cannot be confirmed (409), so the app stops listing it; the user checks Falcon themselves.
     """
     logger.info("Starting delete-policy handler")
     try:
         body = request.body or {}
         rule_group_id = body.get('rule_group_id', '').strip()
+        forget_record = body.get('forget_record') is True
 
         if not rule_group_id:
             return Response(code=400, body={"error": "rule_group_id is required"})
@@ -766,6 +791,9 @@ def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
             return Response(code=500, body={"error": f"{err}. Nothing was deleted."})
         if not records:
             return Response(code=404, body={"error": f"No policy managed by this app uses rule group {rule_group_id}"})
+
+        if forget_record:
+            return _forget_records(records, rule_group_id, custom_storage, logger)
 
         # Records written by earlier versions have no policy_id: resolve it by name
         policy, lookup_error = _current_policy(fw_policies, mgmt, records, tracked_rule_groups, logger)
@@ -849,7 +877,7 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
         if not old_rg_id or not isinstance(categories, dict):
             return Response(code=400, body={"error": "Missing required fields"})
         # The old records are replaced by one per category: without any the app would lose the policy
-        error = _categories_error(categories) or _whitelist_error(whitelist_raw)
+        error = _categories_error(categories)
         if error:
             return Response(code=400, body={"error": error})
 
@@ -865,6 +893,13 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
 
         def _stored(field):
             return next((r.get(field) for r in old_records if r.get(field)), None)
+
+        # The edit form sends the stored whitelist back. One saved before domains were validated
+        # (for example an IP address) is kept as is, so other fields can still be edited.
+        if whitelist_raw != (_stored('whitelist') or '').strip():
+            error = _whitelist_error(whitelist_raw)
+            if error:
+                return Response(code=400, body={"error": error})
 
         host_group_id = _stored('host_group_id') or body.get('hostGroupId', '').strip()
         host_group_name = _stored('host_group_name') or body.get('hostGroupName', 'Unknown')
