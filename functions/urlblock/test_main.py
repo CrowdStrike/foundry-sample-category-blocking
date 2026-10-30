@@ -279,7 +279,7 @@ class SimulatePolicyTestCase(HandlerTestCase):
                  **self.rule_group_changes.get(i, {})) for i in ids])
         clients = {"CustomStorage": self.store, "FirewallManagement": self.mgmt}
         p = patch.object(policies, "get_client", side_effect=lambda cls: clients[cls.__name__])
-        p.start()
+        self.get_client = p.start()
         self.addCleanup(p.stop)
 
     def simulate(self, fqdn):
@@ -437,6 +437,18 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertEqual((resp.body["category"], resp.body["rule"]), ("Fb Mirror", "*.facebook.com"))
         self.assertEqual(len(self.calls("list", "relationship")), 1)
         self.assertEqual([c[2] for c in self.calls("get", "relationship")], [fb_key])
+
+    def test_format_of_a_category_is_resolved_once_per_simulation(self):
+        # two domain objects of Facebook, deployed raw only: neither blocks www.facebook.com, so
+        # the scan reaches both, and the second reuses the format resolved for the first
+        for key in ("Facebook", "Facebook_old"):
+            self.store.objects(*DOMAIN)[key] = {"category": "Facebook", "domain": "facebook.com"}
+        fb_key = self.deploy("Facebook", sanitized=False)
+        resp = self.simulate("www.facebook.com")
+        self.assertEqual((resp.body["found"], resp.body["message"]), (False, "Not blocked"))
+        self.assertEqual([c[2] for c in self.calls("get", "relationship")], [fb_key])
+        self.mgmt.get_rule_groups.assert_called_once_with(ids=["rg"])
+        self.assertEqual([c.args[0].__name__ for c in self.get_client.call_args_list].count("FirewallManagement"), 1)
 
     def assert_not_confirmed(self, resp, warning):
         """Nothing that could be checked blocks the name, but something could not be checked."""

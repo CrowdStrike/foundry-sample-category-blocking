@@ -965,6 +965,7 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
             return Response(code=400, body={"error": "Invalid fqdn"})
 
         custom_storage = get_client(CustomStorage)
+        mgmt = get_client(FirewallManagement)
         candidates = _blocking_candidates(fqdn)
 
         def _current_entry(item):
@@ -984,8 +985,14 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
         # Listed once, when the format of a category first matters; keys of another shape cannot
         # be attributed to a category by name, so they are read once for every category too
         relationship_listing = {}
+        formats_by_category = {}  # resolved once per category: several domain objects may share one
 
         def _deployed_formats(category):
+            if category not in formats_by_category:
+                formats_by_category[category] = _read_deployed_formats(category)
+            return formats_by_category[category]
+
+        def _read_deployed_formats(category):
             """
             Formats of the rules deployed for a category: (set, None) or (None, error message).
             Only records whose rule group is deployed count (see _rule_group_deployed): a record
@@ -1008,8 +1015,7 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
             rule_group_ids = list(dict.fromkeys(r['rule_group_id'] for r in records if r.get('rule_group_id')))
             rule_groups = {}
             if rule_group_ids:
-                rule_groups, err = _get_by_ids(get_client(FirewallManagement).get_rule_groups, rule_group_ids, 'id',
-                                               "get_rule_groups", logger)
+                rule_groups, err = _get_by_ids(mgmt.get_rule_groups, rule_group_ids, 'id', "get_rule_groups", logger)
                 if err:
                     return None, f"Failed to read rule groups from Falcon: {err}"
             deployed = {rg_id for rg_id, rule_group in rule_groups.items() if _rule_group_deployed(rule_group)}
