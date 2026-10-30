@@ -1,419 +1,529 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { FalconApiContext } from '../contexts/falcon-api-context';
-import { SlDetails, SlAlert, SlDialog } from '@shoelace-style/shoelace/dist/react';
+import { categoryKey } from '../utils/keys.js';
+import { callFunction } from '../utils/api.js';
+import { plural } from '../utils/text.js';
+import {
+  SlButton,
+  SlDialog,
+  SlTextarea,
+  SlSpinner,
+  SlAlert,
+  SlBadge,
+} from '@shoelace-style/shoelace/dist/react';
 import '@shoelace-style/shoelace/dist/themes/light.css';
+import '@shoelace-style/shoelace/dist/themes/dark.css';
 
+// ─── Styles ────────────────────────────────────────────────────────────────
 
-// Logging utility
-const logMessage = (message, data = null, type = 'info') => {
-    const timestamp = new Date().toISOString();
-    const logFunc = type === 'error' ? console.error : console.log;
-    if (data) {
-        logFunc(`[${timestamp}] ${message}:`, data);
-    } else {
-        logFunc(`[${timestamp}] ${message}`);
-    }
+const inputStyle = {
+  fontFamily: 'var(--sl-font-sans)',
+  fontSize: 'var(--sl-font-size-medium)',
+  height: '40px',
+  lineHeight: '40px',
+  border: '1px solid #B8B7BD',
+  borderRadius: '0',
+  width: '100%',
+  padding: '0 12px',
+  background: 'white',
+  outline: 'none',
+  boxSizing: 'border-box',
 };
 
-// Helper functions
-const createValidKey = (str) => {
-    // Replace any invalid characters with underscores and ensure it's within length limits
-    return str.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 999);
+const selectStyle = {
+  ...inputStyle,
+  appearance: 'none',
 };
 
-const safeReadCollection = async (collection, key) => {
-    try {
-        const record = await collection.read(key);
-        return record;
-    } catch (error) {
-        logMessage(`Error reading collection for key ${key}:`, error.message);
-        return null;
-    }
+// ─── Platform badge colors ──────────────────────────────────────────────────
+
+const platformVariant = (p) => {
+  if (p === 'windows') return 'primary';
+  if (p === 'mac') return 'success';
+  if (p === 'linux') return 'warning';
+  return 'neutral';
 };
+
+// ─── Component ─────────────────────────────────────────────────────────────
 
 function FirewallRules() {
-    const { falcon } = useContext(FalconApiContext);
-    const [categories, setCategories] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [selectedCategory, setSelectedCategory] = useState(null);
-    const [showDetails, setShowDetails] = useState(false);
-    const [categoryData, setCategoryData] = useState(null);
-    const [ruleUpdateStatus, setRuleUpdateStatus] = useState({});
-    const [updateDetails, setUpdateDetails] = useState([]);
-    // Add this to your component's state
-const [hasImported, setHasImported] = useState(false);
+  const { falcon, cachedCategories } = useContext(FalconApiContext);
 
-    useEffect(() => {
-        fetchCategories();
-    }, []);
+  // ── Table state
+  const [policies, setPolicies]         = useState([]);
+  const [isLoading, setIsLoading]       = useState(true);
+  const [tableError, setTableError]     = useState(null);
+  const [deletingId, setDeletingId]     = useState(null);
+  const [deleteStatus, setDeleteStatus] = useState(null); // {type, message}
 
-    const fetchCategories = async () => {
-        logMessage('Fetching categories');
-        try {
-            setLoading(true);
-            const collection = falcon.collection({
-                collection: 'domain'
-            });
+  // ── Available categories (for edit modal checkboxes)
+  const [allCategories, setAllCategories] = useState([]);
 
-            const response = await collection.list({
-                limit: 100
-            });
+  // ── Edit modal state
+  const [editOpen, setEditOpen]           = useState(false);
+  const [editPolicy, setEditPolicy]       = useState(null); // policy being edited
+  const [editCategories, setEditCategories] = useState([]); // selected category names
+  const [editWhitelist, setEditWhitelist]   = useState('');
+  const [isSaving, setIsSaving]             = useState(false);
+  const [saveStatus, setSaveStatus]         = useState(null); // {type, message}
 
-            logMessage('Categories response:', response);
+  const dialogRef = useRef(null);
 
-            if (response && response.resources) {
-                setCategories(response.resources);
-                setError(null);
-            }
-        } catch (err) {
-            logMessage('Error fetching categories:', err, 'error');
-            setError('Failed to fetch categories: ' + err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
+  // ── Load policies on mount
+  useEffect(() => {
+    loadPolicies();
+  }, []);
 
-    const handleUpdateRules = async (categoryName, newDomain) => {
-        logMessage(`Starting rule update for category: ${categoryName}`);
-        try {
-            setLoading(true);
+  // Categories come from the app-wide cache (null until its first load finishes)
+  useEffect(() => {
+    if (cachedCategories !== null) setAllCategories(cachedCategories);
+  }, [cachedCategories]);
 
-            // First get relationships for this category
-            const relationshipCollection = falcon.collection({
-                collection: 'relationship'
-            });
-
-            const response = await relationshipCollection.list({
-                limit: 1000
-            });
-
-            logMessage('List response:', response);
-
-            if (!response || !response.resources) {
-                throw new Error('No resources found in response');
-            }
-
-            // Get all relationships data
-            const relationships = [];
-            for (const key of response.resources) {
-                try {
-                    const record = await relationshipCollection.read(key);
-                    if (record && record.category_name === categoryName) {
-                        relationships.push(record);
-                    }
-                } catch (error) {
-                    logMessage(`Error fetching relationship for key ${key}:`, error.message);
-                }
-            }
-
-            if (relationships.length === 0) {
-                throw new Error(`No relationships found for category: ${categoryName}`);
-            }
-
-            // Call update-rules with only the new domain
-            const config = {
-                name: 'urlblock',
-                version: 1
-            };
-
-            const cloudFunction = falcon.cloudFunction(config);
-            const updateResponse = await cloudFunction.path('/update-rules').post({
-                category_name: categoryName,
-                new_urls: newDomain,  // Send only the new URLs
-                relationships: relationships
-            });
-
-            logMessage('Rule update response:', updateResponse);
-
-            if (updateResponse.body && updateResponse.body.success) {
-                const results = updateResponse.body.results || [];
-
-                // Update status for each rule group
-                const newStatus = {};
-                results.forEach(result => {
-                    newStatus[result.rule_group_id] = {
-                        name: result.rule_group_name,
-                        status: result.status === 'success' ? 'Updated successfully' : 'Failed',
-                        details: result.details || result.error,
-                        timestamp: new Date().toISOString()
-                    };
-                });
-
-                setRuleUpdateStatus(prev => ({ ...prev, ...newStatus }));
-                setUpdateDetails(results);
-            } else {
-                throw new Error(updateResponse.body?.error || 'Failed to update rules');
-            }
-
-        } catch (error) {
-            logMessage('Error in handleUpdateRules:', error, 'error');
-            setError(`Failed to update rules: ${error.message}`);
-        } finally {
-            setLoading(false);
-        }
-    };
-    const handleCategoryClick = async (category) => {
-        logMessage(`Fetching details for category: ${category}`);
-        try {
-            setLoading(true);
-            const collection = falcon.collection({
-                collection: 'domain'
-            });
-
-            const categoryData = await collection.read(category);
-            logMessage('Category data:', categoryData);
-
-            if (categoryData) {
-                setCategoryData(categoryData);
-                setSelectedCategory(category);
-                setShowDetails(true);
-                setRuleUpdateStatus({});
-                setUpdateDetails([]);
-            }
-        } catch (err) {
-            logMessage('Error fetching category details:', err, 'error');
-            setError('Failed to fetch category details: ' + err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
+  // ─────────────────────────────────────────────────────────────────────────
+  // Data fetchers
+  // ─────────────────────────────────────────────────────────────────────────
 
 
-    const handleAddDomain = async (domain) => {
-    if (!domain.trim()) {
-        setError('Please enter a valid domain');
-        return;
+  const loadPolicies = async () => {
+    setIsLoading(true);
+    setTableError(null);
+    try {
+      const body = await callFunction(falcon, 'GET', '/list-policies');
+      setPolicies(body?.policies ?? []);
+    } catch (err) {
+      console.error('loadPolicies error:', err);
+      setTableError('Could not load policies. Try reloading the page.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Delete handler
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleDelete = async (ruleGroupId, policyName) => {
+    if (!window.confirm(`Delete policy "${policyName}"? This action cannot be undone.`)) {
+      return;
+    }
+    setDeletingId(ruleGroupId);
+    setDeleteStatus(null);
+    try {
+      // The backend resolves the policy from its own records for this rule group
+      const result = await callFunction(falcon, 'POST', '/delete-policy', { rule_group_id: ruleGroupId });
+      await loadPolicies();
+      if (result?.warnings?.length) {
+        setDeleteStatus({ type: 'warning', message: 'Policy deleted with warnings: ' + result.warnings.join(' ') });
+      }
+    } catch (err) {
+      console.error('handleDelete error:', err);
+      alert('Failed to delete policy: ' + err.message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Edit modal handlers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const openEdit = (policy) => {
+    setEditPolicy(policy);
+    setEditCategories([...policy.categories]);
+    setEditWhitelist(policy.whitelist ?? '');
+    setSaveStatus(null);
+    setEditOpen(true);
+  };
+
+  const toggleCategory = (cat) => {
+    setEditCategories(prev =>
+      prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
+    );
+  };
+
+  const handleSave = async () => {
+    if (editCategories.length === 0) {
+      setSaveStatus({ type: 'warning', message: 'Select at least one category.' });
+      return;
     }
 
-    logMessage(`Adding domain: ${domain} to category: ${selectedCategory}`);
+    setIsSaving(true);
+    setSaveStatus(null);
     try {
-        setLoading(true);
+      // 1. Resolve domains for each selected category
+      const collection = falcon.collection({ collection: 'domain' });
+      const categoriesPayload = {};
 
-        // First add domain to collection
-        const collection = falcon.collection({
-            collection: 'domain'
+      await Promise.all(editCategories.map(async (cat) => {
+        try {
+          const record = await collection.read(categoryKey(cat));
+          if (record?.domain) {
+            categoriesPayload[cat] = record.domain;
+          }
+        } catch (err) {
+          console.error(`Could not read domains for category ${cat}:`, err);
+        }
+      }));
+
+      // Never update with a smaller set: the rule group would silently stop blocking those categories
+      const withoutDomains = editCategories.filter(c => !categoriesPayload[c]);
+      if (withoutDomains.length > 0) {
+        setSaveStatus({
+          type: 'danger',
+          message: `No domains found for: ${withoutDomains.join(', ')}. Unselect them or fix the categories. The policy was not changed.`
         });
+        return;
+      }
 
-        // Create a valid key for the collection
-        const safeKey = createValidKey(selectedCategory);
+      // 2. Call update-policy
+      const result = await callFunction(falcon, 'POST', '/update-policy', {
+        ruleGroupId: editPolicy.rule_group_id,
+        policyName:  editPolicy.policy_name,
+        hostGroupId: editPolicy.host_group_id,
+        hostGroupName: editPolicy.host_group_name,
+        platform:    editPolicy.platform,
+        categories:  categoriesPayload,
+        whitelist:   editWhitelist.trim(),
+        username:    falcon?.data?.user?.username || '',
+      });
 
-        // Get current category data
-        const currentData = await safeReadCollection(collection, safeKey);
-        const existingDomains = currentData?.domain || '';
+      await loadPolicies();
+      if (result?.warnings?.length) {
+        setSaveStatus({ type: 'warning', message: 'Policy updated with warnings: ' + result.warnings.join(' ') });
+        return;
+      }
+      setSaveStatus({ type: 'success', message: 'Policy updated successfully!' });
 
-        // Add both the original domain and the starred version
-        const starredDomain = domain.startsWith('*') ? domain : `*${domain}`;
-        const domainsToAdd = `${domain};${starredDomain}`;
-
-        const updatedDomains = existingDomains
-            ? `${existingDomains};${domainsToAdd}`
-            : domainsToAdd;
-
-        // Update domain in collection
-        await collection.write(safeKey, {
-            ...currentData,
-            domain: updatedDomains,
-            last_updated: new Date().toISOString()
-        });
-
-        // Then update rules with both domains
-        await handleUpdateRules(selectedCategory, domainsToAdd);
-
-        // Refresh category details
-        await handleCategoryClick(selectedCategory);
-
-        setError(null);
-        logMessage(`Successfully added domain and starred version, and updated rules`);
+      // Close modal after short delay
+      setTimeout(() => {
+        setEditOpen(false);
+        setSaveStatus(null);
+      }, 1500);
 
     } catch (err) {
-        logMessage('Error adding domain:', err, 'error');
-        setError('Failed to add domain: ' + err.message);
+      console.error('handleSave error:', err);
+      setSaveStatus({ type: 'danger', message: 'Failed to update policy: ' + err.message });
     } finally {
-        setLoading(false);
+      setIsSaving(false);
     }
-};
+  };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────────
 
-
-    const handleImport = async () => {
-        logMessage('Starting category import');
-        try {
-            setLoading(true);
-            const config = {
-                name: 'urlblock',
-                version: 1
-            };
-
-            const cloudFunction = falcon.cloudFunction(config);
-            const response = await cloudFunction.path('/import-csv').post({
-                collection_name: 'domain'
-            });
-
-
-            logMessage('Import response:', response);
-
-            if (response.body.success) {
-                await fetchCategories();
-                setHasImported(true);
-                setError(null);
-            }
-        } catch (err) {
-            logMessage('Import error:', err, 'error');
-            setError('Import failed: ' + err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-    <div className="container mx-auto p-4 max-w-screen-2xl">
-        <h2 className="text-lg font-semibold text-black mb-4 text-left">Domain Categories Management</h2>
-
-        {/* Import Section */}
-        <div className="mb-6">
-            <sl-button
-                variant="primary"
-                onClick={handleImport}
-                disabled={loading}
-                style={{
-                    '--sl-button-font-size': 'var(--sl-font-size-medium)',
-                    '--sl-input-height-medium': '36px',
-                }}
-            >
-                {loading ? 'Importing...' : 'Import Categories'}
-            </sl-button>
-        </div>
-
-        {/* Error Display */}
-        {error && (
-            <SlAlert variant="danger" className="mb-4">
-                {error}
-            </SlAlert>
-        )}
-
-        {/* Loading Indicator */}
-        {loading && (
-            <div className="text-center py-4">
-                <sl-spinner style={{ fontSize: '2rem' }}></sl-spinner>
-                <p className="mt-2 text-gray-600">Loading...</p>
-            </div>
-        )}
-
-        {/* Categories Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {categories.map((category) => (
-                <sl-card
-                    key={category}
-                    class="cursor-pointer hover:bg-gray-50 transition-colors"
-                    onClick={() => handleCategoryClick(category)}
-                >
-                    <strong>{category}</strong>
-                </sl-card>
-            ))}
-        </div>
-
-        {/* Category Details Dialog */}
-        <SlDialog
-            open={showDetails}
-            onSlAfterHide={() => setShowDetails(false)}
-            label={`Category Details: ${selectedCategory}`}
-            style={{ '--width': '500px' }}
+  return (
+    <div className="space-y-4">
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-bold text-black">Active Blocking Policies</h2>
+        <SlButton
+          size="small"
+          onClick={loadPolicies}
+          disabled={isLoading}
+          style={{ '--sl-input-height-small': '32px' }}
         >
-            {categoryData && (
-                <div className="p-4">
-                    <h3 className="font-bold mb-2">Domains:</h3>
-                    <sl-details open>
-                        <div className="max-h-96 overflow-y-auto">
-                            {categoryData.domain?.split(';')
-                                .filter(domain => domain && !domain.startsWith('*'))
-                                .map((domain, index) => (
-                                    <div key={index} className="py-1 px-2 hover:bg-gray-50">
-                                        {domain}
-                                    </div>
-                                ))
-                            }
-                        </div>
-                    </sl-details>
+          {isLoading ? <SlSpinner style={{ fontSize: '1rem' }} /> : '↻ Refresh'}
+        </SlButton>
+      </div>
 
-                    {/* Add Domain Input */}
-                    <div className="mt-4">
-                        <sl-input
-                            placeholder="Add new domain"
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                    handleAddDomain(e.target.value);
-                                    e.target.value = '';
-                                }
-                            }}
-                            style={{ width: '100%' }}
-                        ></sl-input>
-                        <p className="mt-1 text-sm text-gray-500">
-                            Press Enter to add domain
-                        </p>
+      {/* ── Error banner ────────────────────────────────────────────────── */}
+      {tableError && (
+        <SlAlert variant="danger" open closable onSlAfterHide={() => setTableError(null)}>
+          {tableError}
+        </SlAlert>
+      )}
+
+      {/* ── Delete warnings ─────────────────────────────────────────────── */}
+      {deleteStatus && (
+        <SlAlert variant={deleteStatus.type} open closable onSlAfterHide={() => setDeleteStatus(null)}>
+          {deleteStatus.message}
+        </SlAlert>
+      )}
+
+      {/* ── Loading ─────────────────────────────────────────────────────── */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <SlSpinner style={{ fontSize: '2rem' }} />
+        </div>
+      )}
+
+      {/* ── Empty state ─────────────────────────────────────────────────── */}
+      {!isLoading && policies.length === 0 && !tableError && (
+        <div
+          className="text-center py-12 text-gray-500 text-sm"
+          style={{ border: '1px solid #B8B7BD' }}
+        >
+          No active policies found. Create one from the <strong>Category Blocking Policy</strong> tab.
+        </div>
+      )}
+
+      {/* ── Policies table ──────────────────────────────────────────────── */}
+      {!isLoading && policies.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '13px',
+              border: '1px solid #B8B7BD',
+            }}
+          >
+            <thead>
+              <tr style={{ background: '#f9f9f9', borderBottom: '2px solid #B8B7BD' }}>
+                {['Policy Name', 'Host Group', 'Platform', 'Categories', 'Whitelist', 'Actions'].map(h => (
+                  <th
+                    key={h}
+                    style={{
+                      padding: '10px 12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: '#111',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {policies.map((pol, i) => (
+                <tr
+                  key={pol.rule_group_id}
+                  style={{
+                    borderBottom: '1px solid #E5E7EB',
+                    background: i % 2 === 0 ? '#fff' : '#fafafa',
+                  }}
+                >
+                  {/* Policy Name */}
+                  <td style={{ padding: '10px 12px', fontWeight: 500 }}>
+                    {pol.policy_name || '—'}
+                  </td>
+
+                  {/* Host Group */}
+                  <td style={{ padding: '10px 12px', color: '#555' }}>
+                    {pol.host_group_name || pol.host_group_id || '—'}
+                  </td>
+
+                  {/* Platform */}
+                  <td style={{ padding: '10px 12px' }}>
+                    <SlBadge variant={platformVariant(pol.platform)} pill>
+                      {pol.platform || '—'}
+                    </SlBadge>
+                  </td>
+
+                  {/* Categories */}
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {(pol.categories ?? []).map(cat => (
+                        <span
+                          key={cat}
+                          style={{
+                            display: 'inline-block',
+                            padding: '2px 8px',
+                            background: '#e5e7eb',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            color: '#374151',
+                          }}
+                        >
+                          {cat}
+                        </span>
+                      ))}
                     </div>
+                  </td>
 
-                    {/* Rule Update Status */}
-                    {Object.keys(ruleUpdateStatus).length > 0 && (
-                        <div className="mt-4 border-t pt-4">
-                            <h4 className="font-semibold mb-2">Rule Update Status:</h4>
-                            {Object.entries(ruleUpdateStatus).map(([ruleGroupId, status]) => (
-                                <sl-card key={ruleGroupId} class="mb-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="font-medium">{status.name}</span>
-                                        <sl-badge variant={
-                                            status.status === 'Updated successfully'
-                                                ? 'success'
-                                                : status.status === 'Updating...'
-                                                    ? 'info'
-                                                    : 'danger'
-                                        }>
-                                            {status.status}
-                                        </sl-badge>
-                                    </div>
-                                    {status.details && (
-                                        <div className="mt-2 text-sm text-gray-600">
-                                            {typeof status.details === 'object'
-                                                ? JSON.stringify(status.details, null, 2)
-                                                : status.details
-                                            }
-                                        </div>
-                                    )}
-                                    <div className="mt-1 text-xs text-gray-500">
-                                        {status.timestamp && new Date(status.timestamp).toLocaleString()}
-                                    </div>
-                                </sl-card>
-                            ))}
-                        </div>
+                  {/* Whitelist preview */}
+                  <td style={{ padding: '10px 12px', color: '#555', maxWidth: '220px' }}>
+                    {pol.whitelist ? (
+                      <span
+                        style={{
+                          display: 'block',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={pol.whitelist}
+                      >
+                        {pol.whitelist}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#aaa', fontStyle: 'italic' }}>None</span>
                     )}
+                  </td>
 
-                    {/* Debug Information */}
-                    {process.env.NODE_ENV === 'development' && updateDetails.length > 0 && (
-                        <sl-details class="mt-4">
-                            <div slot="summary" className="text-sm text-gray-600">
-                                Debug Information
-                            </div>
-                            <pre className="mt-2 p-4 bg-gray-50 rounded-lg text-xs overflow-auto max-h-96">
-                                {JSON.stringify(updateDetails, null, 2)}
-                            </pre>
-                        </sl-details>
-                    )}
+                  {/* Actions */}
+                  <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                    <SlButton
+                      size="small"
+                      variant="neutral"
+                      onClick={() => openEdit(pol)}
+                      style={{ marginRight: '6px' }}
+                    >
+                      ✏️ Edit
+                    </SlButton>
+                    <SlButton
+                      size="small"
+                      variant="danger"
+                      loading={deletingId === pol.rule_group_id}
+                      onClick={() => handleDelete(pol.rule_group_id, pol.policy_name)}
+                    >
+                      🗑 Delete
+                    </SlButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-                    <div className="mt-4 text-sm text-gray-600">
-                        Last Updated: {new Date(categoryData.imported_at * 1000).toLocaleString()}
-                    </div>
+      {/* ── Edit Modal ──────────────────────────────────────────────────── */}
+      <SlDialog
+        ref={dialogRef}
+        open={editOpen}
+        label={`Edit policy: ${editPolicy?.policy_name ?? ''}`}
+        style={{ '--width': '700px' }}
+        onSlAfterHide={() => {
+          setEditOpen(false);
+          setSaveStatus(null);
+        }}
+      >
+        {editPolicy && (
+          <div className="space-y-5">
+
+            {/* Read-only metadata */}
+            <div
+              className="grid grid-cols-3 gap-4"
+              style={{ fontSize: '13px', color: '#555' }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, color: '#111', marginBottom: '2px' }}>Policy name</div>
+                <div style={{ padding: '8px 12px', border: '1px solid #B8B7BD', background: '#f5f5f5' }}>
+                  {editPolicy.policy_name}
                 </div>
-            )}
-            <div slot="footer">
-                <sl-button variant="neutral" onClick={() => setShowDetails(false)}>
-                    Close
-                </sl-button>
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, color: '#111', marginBottom: '2px' }}>Host group</div>
+                <div style={{ padding: '8px 12px', border: '1px solid #B8B7BD', background: '#f5f5f5' }}>
+                  {editPolicy.host_group_name || editPolicy.host_group_id}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, color: '#111', marginBottom: '2px' }}>Platform</div>
+                <div style={{ padding: '8px 12px', border: '1px solid #B8B7BD', background: '#f5f5f5' }}>
+                  {editPolicy.platform}
+                </div>
+              </div>
             </div>
-        </SlDialog>
+
+            {/* Categories checkboxes */}
+            <div>
+              <div style={{ fontWeight: 600, color: '#111', marginBottom: '6px', fontSize: '13px' }}>
+                Categories to block
+              </div>
+              <div
+                style={{
+                  border: '1px solid #B8B7BD',
+                  padding: '12px',
+                  maxHeight: '260px',
+                  overflowY: 'auto',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: '6px 20px',
+                }}
+              >
+                {allCategories.length === 0 ? (
+                  <div className="col-span-3 text-center py-4">
+                    <SlSpinner style={{ fontSize: '1.2rem' }} />
+                  </div>
+                ) : (
+                  allCategories.sort().map(cat => (
+                    <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="checkbox"
+                        id={`edit-cat-${cat}`}
+                        checked={editCategories.includes(cat)}
+                        onChange={() => toggleCategory(cat)}
+                        style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                      />
+                      <label
+                        htmlFor={`edit-cat-${cat}`}
+                        style={{ fontSize: '12px', cursor: 'pointer', color: '#374151' }}
+                      >
+                        {cat}
+                      </label>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
+                {plural(editCategories.length, 'category', 'categories')} selected
+              </div>
+            </div>
+
+            {/* Whitelist */}
+            <div>
+              <div style={{ fontWeight: 600, color: '#111', marginBottom: '4px', fontSize: '13px' }}>
+                Excluded Domains (Whitelist)
+              </div>
+              <p style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '6px' }}>
+                These domains will be added as an <strong>ALLOW</strong> rule with highest priority.
+                Separate with semicolons (;).
+              </p>
+              <SlTextarea
+                value={editWhitelist}
+                onSlInput={(e) => setEditWhitelist(e.target.value)}
+                rows="3"
+                placeholder="e.g. excepcion.com;*.excepcion.com"
+                resize="vertical"
+                style={{
+                  '--sl-input-font-size': 'var(--sl-font-size-medium)',
+                  'width': '100%',
+                  '--sl-input-border-color': '#B8B7BD',
+                  '--sl-input-border-radius-medium': '0',
+                }}
+              />
+            </div>
+
+            {/* Save status */}
+            {saveStatus && (
+              <SlAlert
+                variant={saveStatus.type === 'warning' ? 'warning' : saveStatus.type === 'success' ? 'success' : 'danger'}
+                open
+              >
+                {saveStatus.message}
+              </SlAlert>
+            )}
+          </div>
+        )}
+
+        {/* Dialog footer */}
+        <div slot="footer" style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <SlButton
+            variant="neutral"
+            onClick={() => setEditOpen(false)}
+            disabled={isSaving}
+          >
+            Cancel
+          </SlButton>
+          <SlButton
+            variant="primary"
+            onClick={handleSave}
+            loading={isSaving}
+            style={{
+              '--sl-button-font-size': 'var(--sl-font-size-medium)',
+              'background-color': '#1a73e8',
+              'color': 'white',
+            }}
+          >
+            Save changes
+          </SlButton>
+        </div>
+      </SlDialog>
     </div>
-);
-
-
+  );
 }
 
 export { FirewallRules };

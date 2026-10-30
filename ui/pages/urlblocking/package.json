@@ -10,11 +10,8 @@
     "@crowdstrike/foundry-js": "0.22.0",
     "@crowdstrike/tailwind-toucan-base": "5.0.0",
     "@shoelace-style/shoelace": "2.20.1",
-    "d3": "7.9.0",
-    "plotly.js": "4.1.1",
     "react": "19.2.1",
     "react-dom": "19.2.1",
-    "react-plotly.js": "2.6.0",
     "react-router-dom": "7.18.2"
   },
   "devDependencies": {
@@ -47,9 +44,6 @@
     "uuid": "13.0.1",
     "tmp": "0.2.7",
     "brace-expansion@5": "5.0.12",
-    "brace-expansion@1": "1.1.21",
-    "js-yaml": "4.3.0",
-    "fast-uri": "3.1.5",
-    "protocol-buffers-schema": "3.6.1"
+    "brace-expansion@1": "1.1.21"
   }
 }
