@@ -239,16 +239,18 @@ class PolicyTestCase(PolicyBase):
 
     def test_whitelist_without_valid_domains_is_rejected(self):
         # its rule would not be created, so the domains meant to stay allowed would be blocked
+        error = "No valid domain in the whitelist. Only domain names are supported, not IP addresses"
         for handler, body in ((policies.create_rule, self.create_body), (policies.update_policy, self.update_body)):
             for whitelist in ("not a domain", "1.2.3.4; http://"):
                 with self.subTest(handler=handler.__name__, whitelist=whitelist):
                     resp = handler(req(dict(body, whitelist=whitelist)), None, self.logger)
-                    self.assertEqual((resp.code, resp.body["error"]), (400, "No valid domain in the whitelist"))
+                    self.assertEqual((resp.code, resp.body["error"]), (400, error))
         self.pol.create_policies.assert_not_called()
         self.mgmt.create_rule_group.assert_not_called()
         self.pol.query_combined_policies.assert_not_called()
         self.pol.get_policies.assert_not_called()
-        self.assertEqual(self.store.calls, [])
+        # update-policy reads the stored whitelist to compare; nothing is written
+        self.assertEqual([c for c in self.store.calls if c[0] == "put"], [])
 
     def test_empty_whitelist_is_accepted(self):
         resp = policies.create_rule(req(dict(self.create_body, whitelist="  ")), None, self.logger)
@@ -286,6 +288,24 @@ class PolicyChangeBase(PolicyBase):
 
 class PolicyUpdateTestCase(PolicyChangeBase):
     # --- update-policy -----------------------------------------------------
+    def test_update_keeps_a_stored_whitelist_without_valid_domains(self):
+        # saved before domains were validated: the edit form sends it back unchanged
+        for key in ("old1", "old2"):
+            self.rel()[key]["whitelist"] = "10.0.0.1"
+        resp = self.update(dict(self.update_body, whitelist=" 10.0.0.1 "))
+        self.assertEqual(resp.code, 200, resp.body)
+        rules = self.mgmt.create_rule_group.call_args.kwargs["rules"]
+        self.assertEqual([r["action"] for r in rules], ["DENY"])
+        self.assertTrue(all(r["whitelist"] == "10.0.0.1" for r in self.rel().values()
+                            if r.get("rule_group_id") == "rg-new"))
+
+    def test_update_rejects_a_changed_whitelist_without_valid_domains(self):
+        for key in ("old1", "old2"):
+            self.rel()[key]["whitelist"] = "10.0.0.1"
+        resp = self.update(dict(self.update_body, whitelist="10.0.0.2"))
+        self.assertEqual(resp.code, 400)
+        self.pol.create_policies.assert_not_called()
+
     def test_update_creates_new_policy_before_removing_old_one(self):
         order = self.record_calls()
 
@@ -1086,6 +1106,34 @@ class LegacyRuleFormatTestCase(PolicyChangeBase):
 
 class PolicyDeleteTestCase(PolicyChangeBase):
     # --- delete-policy -----------------------------------------------------
+    def test_forget_record_removes_legacy_records_without_touching_falcon(self):
+        # the way out for a legacy record whose policy cannot be confirmed (409)
+        self.make_legacy()
+        resp = self.delete({"rule_group_id": "rg-old", "forget_record": True})
+        self.assertEqual((resp.code, resp.body["relationsDeleted"]), (200, 2), resp.body)
+        self.assertIn("Nothing was changed in Falcon", resp.body["warnings"][0])
+        self.assertNotIn("old1", self.rel())
+        self.assertNotIn("old2", self.rel())
+        self.assertIn("other", self.rel())
+        self.pol.query_combined_policies.assert_not_called()
+        self.pol.perform_action.assert_not_called()
+        self.pol.delete_policies.assert_not_called()
+        self.mgmt.delete_rule_groups.assert_not_called()
+
+    def test_forget_record_is_refused_for_records_with_a_policy_id(self):
+        # a policy of this version is always resolved by id: forgetting it would leave it enforcing untracked
+        resp = self.delete({"rule_group_id": "rg-old", "forget_record": True})
+        self.assertEqual(resp.code, 400)
+        self.assertIn("old1", self.rel())
+        self.pol.delete_policies.assert_not_called()
+
+    def test_forget_record_reports_records_it_could_not_remove(self):
+        self.make_legacy()
+        self.store.fail_delete.add("old2")
+        resp = self.delete({"rule_group_id": "rg-old", "forget_record": True})
+        self.assertEqual((resp.code, resp.body["error"]), (500, "1 relationship record could not be removed. Please retry."))
+        self.mgmt.delete_rule_groups.assert_not_called()
+
     def test_delete_policy_disables_then_deletes_policy_then_rule_group(self):
         order = self.record_calls()
         resp = self.delete({"rule_group_id": "rg-old"})
