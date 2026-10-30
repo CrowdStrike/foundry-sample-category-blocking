@@ -539,7 +539,10 @@ def _categories_error(categories):
 
 
 def _build_rules_list(policy_name, categories, whitelist_raw):
-    """Build the firewall rules for a policy from its whitelist and categories."""
+    """
+    Build the firewall rules for a policy from its whitelist and categories, which
+    _categories_error has accepted: each has a valid domain, so each gets a rule.
+    """
     rules_list = []
     temp_counter = 0
 
@@ -551,11 +554,7 @@ def _build_rules_list(policy_name, categories, whitelist_raw):
             temp_counter += 1
 
     for category_name, urls_raw in categories.items():
-        if not urls_raw:
-            continue
         clean_urls = _sanitize_url_list(urls_raw, separator=';')
-        if not clean_urls:
-            continue
         rules_list.append(_build_rule(f"deny_{category_name}", "DENY", ';'.join(clean_urls), str(temp_counter),
                                       f"Block {category_name}"))
         temp_counter += 1
@@ -650,8 +649,6 @@ def create_rule(request: Request, _: dict, logger: Logger) -> Response:
             return Response(code=400, body={"error": error})
 
         rules_list = _build_rules_list(policy_name, categories, whitelist_raw)
-        if not rules_list:
-            return Response(code=400, body={"error": "No valid rules could be built"})
 
         mgmt = get_client(FirewallManagement)
         fw_policies = get_client(FirewallPolicies)
@@ -868,8 +865,6 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
             return Response(code=400, body={"error": "Missing required fields"})
 
         rules_list = _build_rules_list(policy_name, categories, whitelist_raw)
-        if not rules_list:
-            return Response(code=400, body={"error": "No valid rules could be built"})
 
         # Read the current policy once: records written by earlier versions have no policy_id
         # (resolved by name) and no platform (read from the policy)
