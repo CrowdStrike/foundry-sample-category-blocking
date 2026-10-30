@@ -373,7 +373,7 @@ def _match_legacy_policy(candidates, containers_by_id, rule_group_id, platform=N
         return None, None
     if platform not in PLATFORM_NAMES:
         return None, _unconfirmed_error(candidates, rule_group_id,
-                                        "Falcon did not return the rule group, so its platform is unknown")
+                                        "the rule group's platform could not be confirmed in Falcon")
     on_host_group = [p for p in candidates if host_group_id and host_group_id in _group_ids(p)]
     if not on_host_group:
         if not host_group_id:

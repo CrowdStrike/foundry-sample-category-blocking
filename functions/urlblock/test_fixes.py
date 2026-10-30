@@ -999,9 +999,10 @@ class PolicyLegacyPlatformTestCase(PolicyChangeBase):
         self.legacy_records(Games="rg-old")
         self.policies_named_p(**{"pol-legacy": "Windows"})
         error = ("1 Falcon policy named 'P' (pol-legacy) may be the policy of rule group rg-old, but it cannot be "
-                 "confirmed: Falcon did not return the rule group, so its platform is unknown. Check it in Falcon")
+                 "confirmed: the rule group's platform could not be confirmed in Falcon. Check it in Falcon")
         not_returned = {"200 without it": lambda ids: falcon_ok([]),
-                        "404": lambda ids: {"status_code": 404, "body": {"errors": [{"message": "not found"}]}}}
+                        "404": lambda ids: {"status_code": 404, "body": {"errors": [{"message": "not found"}]}},
+                        "unknown platform": lambda ids: falcon_ok([{"id": i, "platform": "other"} for i in ids])}
         for case, response in not_returned.items():
             with self.subTest(case):
                 self.mgmt.get_rule_groups.side_effect = response
