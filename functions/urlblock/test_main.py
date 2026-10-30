@@ -270,11 +270,13 @@ class SimulatePolicyTestCase(HandlerTestCase):
 
     def setUp(self):
         super().setUp()
-        # Falcon: every rule group exists, unless listed in self.deleted_rule_groups
-        self.deleted_rule_groups = set()
+        # Falcon: every rule group is held by a policy, unless self.rule_group_changes says otherwise.
+        # get_rule_groups keeps returning a deleted rule group, with deleted: true
+        self.rule_group_changes = {}
         self.mgmt = MagicMock()
-        self.mgmt.get_rule_groups.side_effect = lambda ids: falcon_response(
-            resources=[{"id": i} for i in ids if i not in self.deleted_rule_groups])
+        self.mgmt.get_rule_groups.side_effect = lambda ids: falcon_response(resources=[
+            dict({"id": i, "enabled": True, "deleted": False, "platform": "windows", "policy_ids": ["pol-1"]},
+                 **self.rule_group_changes.get(i, {})) for i in ids])
         clients = {"CustomStorage": self.store, "FirewallManagement": self.mgmt}
         p = patch.object(policies, "get_client", side_effect=lambda cls: clients[cls.__name__])
         p.start()
@@ -350,21 +352,44 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertEqual(resp.body["category"], "Fb Mirror")
         self.assertEqual(sorted(c[2] for c in self.calls("get", "relationship")), [fb_key, "unshaped"])
 
-    def test_records_of_a_deleted_rule_group_do_not_count_as_deployed(self):
-        # delete-policy deleted the legacy rule group, then one of its records could not be removed:
-        # Games is no longer deployed, so it is checked as this version would deploy it
-        self.deploy("Games", sanitized=False, rule_group="rg-gone")
-        self.deleted_rule_groups.add("rg-gone")
-        self.mgmt.get_rule_groups.side_effect = lambda ids: falcon_response(404, errors=[{"message": "not found"}])
+    def assert_checked_as_this_version_deploys_it(self):
         resp = self.simulate("store.steam.com")
         self.assertEqual((resp.body["found"], resp.body["message"], resp.body["rule"]),
                          (True, "Blocked by Games", "*.steam.com"))
         self.mgmt.get_rule_groups.assert_called_once_with(ids=["rg-gone"])
 
-    def test_only_records_of_existing_rule_groups_count(self):
+    def test_records_of_a_deleted_rule_group_do_not_count_as_deployed(self):
+        # delete-policy deleted the legacy rule group, then one of its records could not be removed:
+        # Games is no longer deployed, so it is checked as this version would deploy it
+        self.deploy("Games", sanitized=False, rule_group="rg-gone")
+        # as Falcon returns it once deleted (soft delete), and with its policy_ids still listed
+        for changes in ({"enabled": False, "deleted": True, "policy_ids": []}, {"deleted": True}):
+            with self.subTest(changes=changes):
+                self.rule_group_changes["rg-gone"] = changes
+                self.mgmt.get_rule_groups.reset_mock()
+                self.assert_checked_as_this_version_deploys_it()
+
+    def test_records_of_a_rule_group_whose_policy_was_deleted_do_not_count_as_deployed(self):
+        # delete-policy deleted the policy but not its rule group, which no policy holds any more
+        self.deploy("Games", sanitized=False, rule_group="rg-gone")
+        self.rule_group_changes["rg-gone"] = {"policy_ids": []}
+        self.assert_checked_as_this_version_deploys_it()
+
+    def test_records_of_a_rule_group_that_is_gone_do_not_count_as_deployed(self):
+        self.deploy("Games", sanitized=False, rule_group="rg-gone")
+        self.mgmt.get_rule_groups.side_effect = lambda ids: falcon_response(404, errors=[{"message": "not found"}])
+        self.assert_checked_as_this_version_deploys_it()
+
+    def test_records_of_a_rule_group_held_by_a_policy_count_as_deployed(self):
+        self.deploy("Games", sanitized=False, rule_group="rg-live")
+        resp = self.simulate("store.steam.com")
+        self.assertEqual((resp.body["found"], resp.body["message"]), (False, "Not blocked"))
+        self.mgmt.get_rule_groups.assert_called_once_with(ids=["rg-live"])
+
+    def test_only_records_of_deployed_rule_groups_count(self):
         self.deploy("Games", sanitized=True, rule_group="rg-gone")
         self.deploy("Games", sanitized=False, rule_group="rg-live")
-        self.deleted_rule_groups.add("rg-gone")
+        self.rule_group_changes["rg-gone"] = {"enabled": False, "deleted": True, "policy_ids": []}
         self.assertFalse(self.simulate("store.steam.com").body["found"])  # only the raw "steam.com" is deployed
         self.mgmt.get_rule_groups.assert_called_once()
         self.assertEqual(sorted(self.mgmt.get_rule_groups.call_args.kwargs["ids"]), ["rg-gone", "rg-live"])

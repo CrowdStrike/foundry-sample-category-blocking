@@ -935,6 +935,14 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
         return Response(code=500, body={"error": "Failed to update policy"})
 
 
+def _rule_group_deployed(rule_group):
+    """
+    Whether a rule group, as get_rule_groups returns it, is deployed: Falcon keeps returning a
+    deleted rule group (deleted: true), and one whose policy was deleted has no policy_ids.
+    """
+    return not rule_group.get('deleted') and bool(rule_group.get('policy_ids'))
+
+
 def _blocking_candidates(fqdn: str) -> list:
     """
     Rule entries that would block `fqdn`, most specific first: the exact name, its own
@@ -980,9 +988,9 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
         def _deployed_formats(category):
             """
             Formats of the rules deployed for a category: (set, None) or (None, error message).
-            Only records whose rule group exists in Falcon count: delete-policy and update-policy
-            delete the rule group before its records, so a record left behind by a failed
-            cleanup names a rule group that no longer exists.
+            Only records whose rule group is deployed count (see _rule_group_deployed): a record
+            left behind by a failed cleanup names a rule group that is deleted, or that no policy
+            holds once delete-policy deleted the policy but not the rule group.
             """
             if not relationship_listing:
                 keys, err = _list_relationship_keys(custom_storage, logger)
@@ -998,14 +1006,15 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
                 return None, err
             records = [r for r in records + relationship_listing['unshaped'] if r.get('category_name') == category]
             rule_group_ids = list(dict.fromkeys(r['rule_group_id'] for r in records if r.get('rule_group_id')))
-            existing = {}
+            rule_groups = {}
             if rule_group_ids:
-                existing, err = _get_by_ids(get_client(FirewallManagement).get_rule_groups, rule_group_ids, 'id',
-                                            "get_rule_groups", logger)
+                rule_groups, err = _get_by_ids(get_client(FirewallManagement).get_rule_groups, rule_group_ids, 'id',
+                                               "get_rule_groups", logger)
                 if err:
                     return None, f"Failed to read rule groups from Falcon: {err}"
+            deployed = {rg_id for rg_id, rule_group in rule_groups.items() if _rule_group_deployed(rule_group)}
             return {'sanitized' if r.get('rule_format') == RULE_FORMAT_SANITIZED else 'raw'
-                    for r in records if r.get('rule_group_id') in existing}, None
+                    for r in records if r.get('rule_group_id') in deployed}, None
 
         found = {}  # the rule that blocks the name
         unresolved = []  # (category, why its format could not be resolved)
