@@ -237,6 +237,24 @@ class PolicyTestCase(PolicyBase):
         self.assertEqual(self.store.calls, [])
 
 
+    def test_whitelist_without_valid_domains_is_rejected(self):
+        # its rule would not be created, so the domains meant to stay allowed would be blocked
+        for handler, body in ((policies.create_rule, self.create_body), (policies.update_policy, self.update_body)):
+            for whitelist in ("not a domain", "1.2.3.4; http://"):
+                with self.subTest(handler=handler.__name__, whitelist=whitelist):
+                    resp = handler(req(dict(body, whitelist=whitelist)), None, self.logger)
+                    self.assertEqual((resp.code, resp.body["error"]), (400, "No valid domain in the whitelist"))
+        self.pol.create_policies.assert_not_called()
+        self.mgmt.create_rule_group.assert_not_called()
+        self.pol.query_combined_policies.assert_not_called()
+        self.pol.get_policies.assert_not_called()
+        self.assertEqual(self.store.calls, [])
+
+    def test_empty_whitelist_is_accepted(self):
+        resp = policies.create_rule(req(dict(self.create_body, whitelist="  ")), None, self.logger)
+        self.assertEqual((resp.code, resp.body["rulesCreated"]), (200, 1))
+
+
 class PolicyChangeBase(PolicyBase):
     """update-policy and delete-policy: both go through _delete_policy."""
 

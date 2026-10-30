@@ -538,20 +538,29 @@ def _categories_error(categories):
     return None
 
 
+def _whitelist_error(whitelist_raw):
+    """
+    Why a whitelist cannot be deployed, or None: one with entries but no valid domain once
+    sanitized would get no rule, so the domains meant to stay allowed would be blocked.
+    """
+    if whitelist_raw and not _sanitize_url_list(whitelist_raw, separator=';'):
+        return "No valid domain in the whitelist"
+    return None
+
+
 def _build_rules_list(policy_name, categories, whitelist_raw):
     """
     Build the firewall rules for a policy from its whitelist and categories, which
-    _categories_error has accepted: each has a valid domain, so each gets a rule.
+    _whitelist_error and _categories_error have accepted: each has a valid domain, so each gets a rule.
     """
     rules_list = []
     temp_counter = 0
 
     if whitelist_raw:
         wl_urls = _sanitize_url_list(whitelist_raw, separator=';')
-        if wl_urls:
-            rules_list.append(_build_rule("whitelist_allow", "ALLOW", ';'.join(wl_urls), str(temp_counter),
-                                          f"Whitelist for {policy_name}"))
-            temp_counter += 1
+        rules_list.append(_build_rule("whitelist_allow", "ALLOW", ';'.join(wl_urls), str(temp_counter),
+                                      f"Whitelist for {policy_name}"))
+        temp_counter += 1
 
     for category_name, urls_raw in categories.items():
         clean_urls = _sanitize_url_list(urls_raw, separator=';')
@@ -644,7 +653,7 @@ def create_rule(request: Request, _: dict, logger: Logger) -> Response:
 
         if not host_group_id or not policy_name or not isinstance(categories, dict):
             return Response(code=400, body={"error": "Missing required fields"})
-        error = _categories_error(categories)
+        error = _categories_error(categories) or _whitelist_error(whitelist_raw)
         if error:
             return Response(code=400, body={"error": error})
 
@@ -840,7 +849,7 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
         if not old_rg_id or not isinstance(categories, dict):
             return Response(code=400, body={"error": "Missing required fields"})
         # The old records are replaced by one per category: without any the app would lose the policy
-        error = _categories_error(categories)
+        error = _categories_error(categories) or _whitelist_error(whitelist_raw)
         if error:
             return Response(code=400, body={"error": error})
 
