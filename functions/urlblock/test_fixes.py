@@ -1260,6 +1260,34 @@ class PolicyDeleteTestCase(PolicyChangeBase):
         self.pol.perform_action.assert_not_called()
         self.pol.delete_policies.assert_not_called()
 
+    def test_retry_completes_a_partially_stored_policy_id(self):
+        self.make_legacy()
+        self.rel()["Social_rg-old_hg1"] = {"category_name": "Social", "rule_group_id": "rg-old", "host_group_id": "hg1",
+                                           "policy_name": "P"}
+        self.pol.query_combined_policies.return_value = falcon_ok([dict(self.legacy_policy, groups=[{"id": "hg1"}])])
+        self.store.fail_put.add("old2")
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual((resp.code, resp.body["error"]), (500, "Failed to record the policy id. Nothing was deleted."))
+        self.assertEqual({k for k in ("old1", "old2", "Social_rg-old_hg1") if "policy_id" in self.rel()[k]},
+                         {"old1", "Social_rg-old_hg1"})
+
+        # the retry completes the write, then Falcon refuses the delete: the records stay
+        self.store.fail_put.clear()
+        self.store.calls.clear()
+        self.pol.get_policies.return_value = falcon_ok([dict(self.legacy_policy)])
+        self.pol.delete_policies.return_value = {"status_code": 403, "body": {"errors": [{"message": "forbidden"}]}}
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertTrue(resp.body["error"].endswith("Nothing was deleted."))
+        self.assertEqual([c[2] for c in self.store.calls if c[0] == "put"], ["old2"])
+        self.assertEqual({self.rel()[k].get("policy_id") for k in ("old1", "old2", "Social_rg-old_hg1")},
+                         {"pol-legacy"})
+
+        # health-check counts the policy once
+        self.pol.get_policies.side_effect = lambda ids: falcon_ok(
+            [{"id": i, "enabled": True, "groups": [{"id": "hg1"}]} for i in ids])
+        health = policies.health_check(req(), None, self.logger).body
+        self.assertEqual([p["policy_id"] for p in health["policies"] if p["rule_group_id"] == "rg-old"], ["pol-legacy"])
+
     def test_leftover_legacy_record_never_matches_the_replacement(self):
         # update-policy renames the replacement to "P" on the same host group, and one old record
         # cannot be removed: deleting that leftover must not delete the replacement

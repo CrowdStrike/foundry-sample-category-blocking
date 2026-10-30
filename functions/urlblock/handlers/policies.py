@@ -258,9 +258,10 @@ def _store_policy_ref(records, policy, custom_storage, logger=None):
     """
     Record the policy resolved by name on legacy records (policy_id, and platform when missing),
     so a retry or a leftover record never resolves the name again to another policy.
-    Returns True when the records were updated, or already had it.
+    Returns True when the records were updated, or already had it. When only some records have
+    it (a write failed on an earlier attempt), the others are completed.
     """
-    if not policy or any(r.get('policy_id') for r in records):
+    if not policy or all(r.get('policy_id') for r in records):
         return True
     changes = {'policy_id': policy['id']}
     platform = (policy.get('platform_name') or '').lower()
