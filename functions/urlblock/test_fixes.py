@@ -10,7 +10,7 @@ from crowdstrike.foundry.function import Request, RequestParams
 
 import main  # noqa: F401  # pylint: disable=unused-import
 from app_utils import (
-    read_all_objects,
+    list_object_keys,
     category_key, relationship_key, validate_fqdn, _validate_falcon_response, _sanitize_url_list, plural,
 )
 from conftest import FakeStorage
@@ -839,14 +839,27 @@ class PolicyLegacyFallbackTestCase(PolicyChangeBase):
         self.assertEqual(self.touched_policies(), set())
         self.assertEqual(set(self.rel()), {"other", "Games_rg-new_hg1"})
 
-    def test_health_check_reports_legacy_policies_unresolved_when_the_keys_cannot_be_listed(self):
+    def test_health_check_lists_the_relationship_keys_once(self):
+        # the listing gives both the records to read and the rule groups this app tracks
         self.policies_named_p("pol-legacy")
         self.containers({"pol-legacy": []})
-        with patch.object(policies, "_list_relationship_keys", return_value=(None, "Failed to read relationships")):
+        health = policies.health_check(req(), None, self.logger).body
+        entry = next(p for p in health["policies"] if p["rule_group_id"] == "rg-old")
+        self.assertEqual(entry["policy_id"], "pol-legacy")
+        self.assertEqual([c for c in self.store.calls if c[0] == "list"], [("list", "relationship", None)])
+        self.assertEqual(sorted(c[2] for c in self.store.calls if c[0] == "get"), ["old1", "old2", "other"])
+
+    def test_health_check_reports_legacy_policies_unresolved_when_the_keys_are_truncated(self):
+        # keys are listed alphabetically: two per page and one page leaves "other" unlisted, and
+        # it might name a rule group that rules a candidate out
+        self.policies_named_p("pol-legacy")
+        self.containers({"pol-legacy": []})
+        with patch.object(policies, "list_object_keys", partial(list_object_keys, page_size=2, max_pages=1)):
             health = policies.health_check(req(), None, self.logger).body
         entry = next(p for p in health["policies"] if p["rule_group_id"] == "rg-old")
-        self.assertEqual((entry["policy_id"], entry["issues"]),
-                         (None, ["Failed to read relationships, so the policy could not be resolved"]))
+        self.assertEqual((entry["policy_id"], entry["issues"]), (None, [
+            "Only the first 2 relationship records could be listed, so the policy could not be resolved"]))
+        self.assertEqual(health["incomplete"], True)
 
     def test_several_policies_with_the_name_on_the_host_group_change_nothing(self):
         self.policies_named_p("pol-a", "pol-b")
@@ -1542,7 +1555,7 @@ class PolicyQueryTestCase(PolicyBase):
         self.pol.get_policies.side_effect = lambda ids: falcon_ok([{"id": i, "enabled": True, "groups": [1]} for i in ids])
         self.mgmt.get_policy_containers.side_effect = lambda ids: falcon_ok(
             [{"policy_id": i, "enforce": True, "rule_group_ids": ["r"]} for i in ids])
-        with patch.object(policies, "read_all_objects", partial(read_all_objects, page_size=2, max_pages=1)):
+        with patch.object(policies, "list_object_keys", partial(list_object_keys, page_size=2, max_pages=1)):
             resp = policies.health_check(req(), None, self.logger)
         self.assertEqual(resp.code, 200)
         self.assertEqual([p["policy_id"] for p in resp.body["policies"]], ["p-a", "p-b"])

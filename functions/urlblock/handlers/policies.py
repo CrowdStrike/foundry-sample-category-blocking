@@ -1195,23 +1195,28 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
         fw_policies = get_client(FirewallPolicies)
         mgmt = get_client(FirewallManagement)
 
-        result = read_all_objects(custom_storage, "relationship", COLLECTION_RELATION_VER, logger=logger)
-        if "error" in result:
+        # Listed once: the keys give the records to read, and the rule groups this app tracks (below)
+        listing = list_object_keys(custom_storage, "relationship", COLLECTION_RELATION_VER)
+        if "error" in listing:
             return Response(code=500, body={"error": "Failed to read relationships"})
+        pagination = listing["pagination"]
+        records, failed = read_objects(custom_storage, "relationship", COLLECTION_RELATION_VER, listing["keys"],
+                                       logger=logger)
+        records = [item for item in records if isinstance(item, dict)]
         # The readable records are checked; a policy whose records could not be read may be missing
         warnings = []
-        if result["failed"]:
-            count = plural(result['failed'], 'relationship record')
-            warnings.append(f"{count} could not be read, so {'its policy' if result['failed'] == 1 else 'their policies'} "
+        if failed:
+            count = plural(len(failed), 'relationship record')
+            warnings.append(f"{count} could not be read, so {'its policy' if len(failed) == 1 else 'their policies'} "
                             "may be missing from this report")
-        if result["pagination"]["truncated"]:
-            read = plural(result['pagination']['returned'], 'relationship record')
+        if pagination["truncated"]:
+            read = plural(pagination['returned'], 'relationship record')
             warnings.append(f"only the first {read} could be read, so some policies may be missing from this report")
 
         # One entry per policy: keyed by policy_id, or for legacy records without it by name and
         # rule group (same-name legacy policies are told apart by their rule group)
         unique_policies = {}
-        for item in result['resources']:
+        for item in records:
             if not isinstance(item, dict):
                 continue
             policy_name = item.get('policy_name')
@@ -1240,13 +1245,11 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
             if err:
                 return Response(code=502, body={"error": f"Failed to read rule groups from Falcon: {err}"})
         # The rule groups this app tracks come from the key listing, as for update and delete: the key
-        # of a record that could not be read still names its rule group
-        tracked_rule_groups, tracked_error = frozenset(), None
-        if any(found_by_name.get(item['policy_name']) for key, item in unique_policies.items() if isinstance(key, tuple)):
-            keys, tracked_error = _list_relationship_keys(custom_storage, logger)
-            if not tracked_error:
-                records = [item for item in result['resources'] if isinstance(item, dict)]
-                tracked_rule_groups = _tracked_rule_groups(keys, records)
+        # of a record that could not be read still names its rule group. A truncated listing may
+        # leave out a tracked rule group that rules a candidate out
+        tracked_rule_groups, tracked_error = _tracked_rule_groups(listing["keys"], records), None
+        if pagination["truncated"]:
+            tracked_error = f"Only the first {plural(pagination['returned'], 'relationship record')} could be listed"
         resolved, unresolved = {}, {}  # key -> policy_id, key -> why it could not be resolved
         for key, item in unique_policies.items():
             if isinstance(key, tuple) and tracked_error and found_by_name.get(item['policy_name']):
@@ -1324,7 +1327,7 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
             "policies": results,
             "incomplete": bool(warnings),
             "warnings": warnings,
-            "pagination": result["pagination"]
+            "pagination": pagination
         }
 
         logger.info("Successfully completed /health-check")
