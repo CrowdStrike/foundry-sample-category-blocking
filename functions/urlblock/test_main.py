@@ -114,6 +114,24 @@ class StorageHelpersTestCase(unittest.TestCase):
         self.assertEqual([c.args[3] for c in read.call_args_list], [["a", "b"], ["c"]])
         self.assertEqual(([r["_key"] for r in result["resources"]], result["failed"]), (["a", "c"], 1))
 
+    def test_read_all_objects_uses_one_thread_pool_for_every_page(self):
+        store = FakeStorage({DOMAIN: {k: {"x": k} for k in "abcde"}})
+        with patch.object(app_utils, "ThreadPoolExecutor", wraps=app_utils.ThreadPoolExecutor) as pool, \
+                patch.object(app_utils, "read_objects", wraps=app_utils.read_objects) as read:
+            result = read_all_objects(store, *DOMAIN, page_size=2)  # the start cursor is inclusive:
+        self.assertEqual(len(result["resources"]), 5)              # new keys [a, b], [c], [d], [e]
+        self.assertEqual(read.call_count, 4)
+        pool.assert_called_once_with(max_workers=10)
+        executors = {id(c.kwargs["executor"]) for c in read.call_args_list}
+        self.assertEqual(len(executors), 1)  # the same pool for every page
+
+    def test_read_objects_creates_its_own_thread_pool_when_not_given_one(self):
+        store = FakeStorage({DOMAIN: {"a": {"x": 1}, "b": {"x": 2}}})
+        with patch.object(app_utils, "ThreadPoolExecutor", wraps=app_utils.ThreadPoolExecutor) as pool:
+            objects, failed = app_utils.read_objects(store, *DOMAIN, ["a", "b"], max_workers=3)
+        self.assertEqual(([o["_key"] for o in objects], failed), (["a", "b"], []))
+        pool.assert_called_once_with(max_workers=3)
+
     def test_parse_object_response_shapes(self):
         self.assertEqual(parse_object_response(b'{"a": 1}'), {"a": 1})
         self.assertEqual(parse_object_response(falcon_response(body={"a": 1})), {"a": 1})
