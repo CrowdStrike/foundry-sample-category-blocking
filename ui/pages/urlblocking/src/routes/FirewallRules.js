@@ -110,7 +110,18 @@ function FirewallRules() {
     setDeleteStatus(null);
     try {
       // The backend resolves the policy from its own records for this rule group
-      const result = await callFunction(falcon, 'POST', '/delete-policy', { rule_group_id: ruleGroupId });
+      let result;
+      try {
+        result = await callFunction(falcon, 'POST', '/delete-policy', { rule_group_id: ruleGroupId });
+      } catch (err) {
+        // 409: a legacy record whose Falcon policy can't be confirmed. Offer to stop tracking it
+        if (err.status !== 409 || !window.confirm(
+          `${err.message}\n\nRemove "${policyName}" from this app only? Nothing will be changed in Falcon.`)) {
+          throw err;
+        }
+        result = await callFunction(falcon, 'POST', '/delete-policy',
+                                    { rule_group_id: ruleGroupId, forget_record: true });
+      }
       await loadPolicies();
       if (result?.warnings?.length) {
         setDeleteStatus({ type: 'warning', message: 'Policy deleted with warnings: ' + result.warnings.join(' ') });
