@@ -759,6 +759,20 @@ def _forget_records(records, rule_group_id, custom_storage, logger):
         f"{rule_group_id} or its policy still exists there, and delete them in Falcon if they do."]})
 
 
+def _policy_delete_failure_outcome(records, left_disabled, custom_storage, logger):
+    """
+    After a failed policy delete, record whether the policy was left disabled and describe what
+    the user has to do. The marker lets a retry enable the policy again if the delete fails again;
+    without it a retry would not enable it, and only a manual enable helps.
+    """
+    marked = _set_disabled_by_app(records, left_disabled, custom_storage, logger)
+    if not left_disabled:
+        return "Nothing was deleted." if marked else f"Nothing was deleted. {STALE_MARKER_WARNING}"
+    if marked:
+        return "It must be enabled again manually in Falcon, or the delete retried."
+    return "It must be enabled again manually in Falcon."
+
+
 @FUNC.handler(method='POST', path='/delete-policy')
 # pylint: disable-next=too-many-return-statements,too-many-locals
 def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
@@ -809,15 +823,7 @@ def delete_policy(request: Request, _: dict, logger: Logger) -> Response:
             ok, err, left_disabled = _delete_policy(fw_policies, policy_id, "delete_policies", logger,
                                                     policy=policy, disabled_by_app=disabled_by_app)
             if not ok:
-                # Remember a policy left disabled, so a retry enables it again if the delete fails again.
-                # Without that marker a retry would not enable it: then only a manual enable helps.
-                marked = _set_disabled_by_app(records, left_disabled, custom_storage, logger)
-                if not left_disabled:
-                    outcome = "Nothing was deleted." if marked else f"Nothing was deleted. {STALE_MARKER_WARNING}"
-                elif marked:
-                    outcome = "It must be enabled again manually in Falcon, or the delete retried."
-                else:
-                    outcome = "It must be enabled again manually in Falcon."
+                outcome = _policy_delete_failure_outcome(records, left_disabled, custom_storage, logger)
                 return Response(code=500, body={"error": f"Failed to delete policy: {err}. {outcome}"})
 
         ok, err = _deleted(mgmt.delete_rule_groups(ids=[rule_group_id]), "delete_rule_groups", logger)

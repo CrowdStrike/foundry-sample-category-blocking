@@ -435,37 +435,6 @@ class PolicyUpdateTestCase(PolicyChangeBase):
         self.assertIn(call(action_name="enable", ids="pol-old"), self.pol.perform_action.call_args_list)
         self.assertNotIn("disabled_by_app", self.rel()["old1"])
 
-    def assert_legacy_update_changes_nothing(self):
-        self.make_legacy()
-        self.pol.query_combined_policies.return_value = falcon_ok([dict(self.legacy_policy)])
-        resp = self.update(dict(self.update_body, platform=""))
-        self.assertEqual(resp.code, 500)
-        self.assertEqual(resp.body["error"], "Failed to record the current policy id. Nothing was changed.")
-        self.pol.create_policies.assert_not_called()
-        self.mgmt.create_rule_group.assert_not_called()
-        self.pol.perform_action.assert_not_called()
-        self.pol.delete_policies.assert_not_called()
-        self.mgmt.delete_rule_groups.assert_not_called()
-        self.assertEqual(set(self.rel()), {"old1", "old2", "other"})
-        self.assertNotIn("policy_id", self.rel()["old2"])
-        self.assertIn("old2", str(self.logger.error.call_args_list))
-
-    def test_update_legacy_policy_id_write_failure_changes_nothing(self):
-        self.store.fail_put.add("old2")
-        self.assert_legacy_update_changes_nothing()
-
-    def test_update_legacy_policy_id_write_exception_changes_nothing(self):
-        put = self.store.PutObjectByVersion
-
-        def failing_put(**kwargs):
-            if kwargs["object_key"] == "old2":
-                raise RuntimeError("connection reset")
-            return put(**kwargs)
-
-        self.store.PutObjectByVersion = failing_put
-        self.assert_legacy_update_changes_nothing()
-        self.assertIn("connection reset", str(self.logger.error.call_args_list))
-
     def test_update_reports_new_policy_left_untracked(self):
         self.store.fail_put.add("Games_rg-new_hg1")
         resp = self.update()
@@ -516,13 +485,6 @@ class PolicyUpdateTestCase(PolicyChangeBase):
         self.assertEqual(self.mgmt.create_rule_group.call_args.kwargs["platform"], "windows")
         self.assertEqual(set(self.rel()), {"other", "Games_rg-new_hg1"})
 
-    def test_update_legacy_record_without_host_group_uses_request(self):
-        for key in ("old1", "old2"):
-            self.rel()[key].pop("host_group_id")
-        self.assertEqual(self.update(dict(self.update_body, hostGroupId="hg9")).code, 200)
-        self.assertIn("Games_rg-new_hg9", self.rel())
-        self.assertEqual(self.update(dict(self.update_body, ruleGroupId="rg-new", hostGroupId="")).code, 200)
-
     def test_update_strips_temporary_name_left_by_failed_rename(self):
         for key in ("old1", "old2"):
             self.rel()[key]["policy_name"] = "P (updating ab12cd34) (updating 0123abcd)"
@@ -542,6 +504,48 @@ class PolicyUpdateTestCase(PolicyChangeBase):
         record = self.rel()["Games_rg-new_hg1"]
         self.assertTrue(record["policy_name"].startswith("P (updating "))  # matches the real name in Falcon
         self.assertEqual(record["rule_group_name"], "P_RuleGroup")
+
+
+class PolicyUpdateLegacyTestCase(PolicyChangeBase):
+    """Update-policy on legacy records, written before the policy id and platform were stored."""
+
+    def assert_legacy_update_changes_nothing(self):
+        self.make_legacy()
+        self.pol.query_combined_policies.return_value = falcon_ok([dict(self.legacy_policy)])
+        resp = self.update(dict(self.update_body, platform=""))
+        self.assertEqual(resp.code, 500)
+        self.assertEqual(resp.body["error"], "Failed to record the current policy id. Nothing was changed.")
+        self.pol.create_policies.assert_not_called()
+        self.mgmt.create_rule_group.assert_not_called()
+        self.pol.perform_action.assert_not_called()
+        self.pol.delete_policies.assert_not_called()
+        self.mgmt.delete_rule_groups.assert_not_called()
+        self.assertEqual(set(self.rel()), {"old1", "old2", "other"})
+        self.assertNotIn("policy_id", self.rel()["old2"])
+        self.assertIn("old2", str(self.logger.error.call_args_list))
+
+    def test_update_legacy_policy_id_write_failure_changes_nothing(self):
+        self.store.fail_put.add("old2")
+        self.assert_legacy_update_changes_nothing()
+
+    def test_update_legacy_policy_id_write_exception_changes_nothing(self):
+        put = self.store.PutObjectByVersion
+
+        def failing_put(**kwargs):
+            if kwargs["object_key"] == "old2":
+                raise RuntimeError("connection reset")
+            return put(**kwargs)
+
+        self.store.PutObjectByVersion = failing_put
+        self.assert_legacy_update_changes_nothing()
+        self.assertIn("connection reset", str(self.logger.error.call_args_list))
+
+    def test_update_legacy_record_without_host_group_uses_request(self):
+        for key in ("old1", "old2"):
+            self.rel()[key].pop("host_group_id")
+        self.assertEqual(self.update(dict(self.update_body, hostGroupId="hg9")).code, 200)
+        self.assertIn("Games_rg-new_hg9", self.rel())
+        self.assertEqual(self.update(dict(self.update_body, ruleGroupId="rg-new", hostGroupId="")).code, 200)
 
     def test_update_legacy_record_resolves_policy_and_platform_from_falcon(self):
         self.make_legacy()
@@ -1403,6 +1407,25 @@ class PolicyDeleteTestCase(PolicyChangeBase):
         self.mgmt.delete_rule_groups.assert_not_called()
         self.assertEqual({"old1", "old2"} - set(self.rel()), set())
 
+    def test_delete_counts_only_successful_deletes(self):
+        self.store.fail_delete.add("old2")
+        resp = self.delete({"rule_group_id": "rg-old"})
+        self.assertEqual(resp.body["relationsDeleted"], 1)
+        self.assertEqual(resp.body["warnings"], [
+            "1 relationship record could not be removed, so this rule group is still listed in Firewall Rules: "
+            "delete it again to finish the cleanup."])
+        self.assertIn("old2", self.rel())
+        self.pol.query_combined_policies.return_value = falcon_ok([])  # "other" is legacy; its policy is gone
+        resp = self.delete({"rule_group_id": "rg-other"})
+        self.assertEqual((resp.code, resp.body["warnings"]), (200, []))
+
+    def test_delete_policy_requires_rule_group(self):
+        self.assertEqual(self.delete({}).code, 400)
+
+
+class PolicyRelationshipReadTestCase(PolicyChangeBase):
+    """Delete-policy and update-policy when the relationship records cannot all be read or listed."""
+
     def test_partial_relationship_read_changes_nothing(self):
         self.store.fail_get.add("old2")
         for resp in (self.delete({"rule_group_id": "rg-old"}), self.update()):
@@ -1453,21 +1476,6 @@ class PolicyDeleteTestCase(PolicyChangeBase):
         self.pol.create_policies.assert_not_called()
         self.assertEqual(self.touched_policies(), set())
         self.assertEqual(set(self.rel()), {"old1", "old2", "other"})
-
-    def test_delete_counts_only_successful_deletes(self):
-        self.store.fail_delete.add("old2")
-        resp = self.delete({"rule_group_id": "rg-old"})
-        self.assertEqual(resp.body["relationsDeleted"], 1)
-        self.assertEqual(resp.body["warnings"], [
-            "1 relationship record could not be removed, so this rule group is still listed in Firewall Rules: "
-            "delete it again to finish the cleanup."])
-        self.assertIn("old2", self.rel())
-        self.pol.query_combined_policies.return_value = falcon_ok([])  # "other" is legacy; its policy is gone
-        resp = self.delete({"rule_group_id": "rg-other"})
-        self.assertEqual((resp.code, resp.body["warnings"]), (200, []))
-
-    def test_delete_policy_requires_rule_group(self):
-        self.assertEqual(self.delete({}).code, 400)
 
 
 class PolicyQueryTestCase(PolicyBase):
