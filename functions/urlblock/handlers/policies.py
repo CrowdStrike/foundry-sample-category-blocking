@@ -3,6 +3,7 @@
 # Handlers deliberately catch every exception to log it and return a 500 response.
 # pylint: disable=broad-exception-caught,too-many-lines
 
+import functools
 import re
 import traceback
 import uuid
@@ -259,13 +260,15 @@ def _store_policy_ref(records, policy, custom_storage, logger=None):
     Record the policy resolved by name on legacy records (policy_id, and platform when missing),
     so a retry or a leftover record never resolves the name again to another policy.
     Returns True when the records were updated, or already had it. When only some records have
-    it (a write failed on an earlier attempt), the others are completed.
+    it (a write failed on an earlier attempt), the others are completed, with the platform
+    another record already stores, or else the policy's.
     """
     if not policy or all(r.get('policy_id') for r in records):
         return True
     changes = {'policy_id': policy['id']}
-    platform = (policy.get('platform_name') or '').lower()
-    if platform in PLATFORM_NAMES and not any(r.get('platform') for r in records):
+    platform = next((r['platform'] for r in records if r.get('platform') in PLATFORM_NAMES), None)
+    platform = platform or (policy.get('platform_name') or '').lower()
+    if platform in PLATFORM_NAMES:
         changes['platform'] = platform
     return _update_records(records, changes, custom_storage, logger)
 
@@ -420,7 +423,8 @@ def _current_policy(fw_policies, mgmt, records, tracked_rule_groups, logger=None
     from the request), or resolved by name for records written before policy_id was stored:
     the policy with that name whose Falcon container holds the stored rule group, or else the
     only one on the stored host group with an empty container (see _match_legacy_policy).
-    Their platform, when the records lack it, is read from the rule group in Falcon.
+    Their platform, when the records lack it and no single candidate holds the rule group (a
+    rule group is only attached to a policy of its platform), is read from the rule group in Falcon.
     Returns (policy or None when it does not exist, None) or (None, (HTTP status, error message)).
     """
     def _stored(field):
@@ -445,7 +449,9 @@ def _current_policy(fw_policies, mgmt, records, tracked_rule_groups, logger=None
                                             'policy_id', "get_policy_containers", logger)
         if err:
             return None, (502, err)
-        if platform not in PLATFORM_NAMES:
+        holding = [p for p in candidates
+                   if rule_group_id in (containers_by_id.get(p.get('id')) or {}).get('rule_group_ids', [])]
+        if platform not in PLATFORM_NAMES and len(holding) != 1:
             platforms, err = _rule_group_platforms(mgmt, [rule_group_id], logger)
             if err:
                 return None, (502, f"Failed to read rule group {rule_group_id} from Falcon: {err}")
@@ -930,8 +936,13 @@ def update_policy(request: Request, _: dict, logger: Logger) -> Response:
         if platform not in PLATFORM_NAMES and old_policy:
             platform = (old_policy.get('platform_name') or '').lower()
         if platform not in PLATFORM_NAMES and not old_policy:
-            # Nothing to replace: the request only chooses the platform of the policy to create
-            platform = body.get('platform', '').strip().lower()
+            # Nothing to replace: the old rule group keeps its platform in Falcon, even once
+            # deleted; without it, the request chooses the platform of the policy to create
+            platforms, err = _rule_group_platforms(mgmt, [old_rg_id], logger)
+            if err:
+                return Response(code=502, body={
+                    "error": f"Failed to read rule group {old_rg_id} from Falcon: {err}. Nothing was changed."})
+            platform = platforms.get(old_rg_id) or body.get('platform', '').strip().lower()
         if platform not in PLATFORM_NAMES:
             return Response(code=400, body={
                 "error": f"Could not determine the platform; it must be one of: {', '.join(PLATFORM_NAMES)}"})
@@ -1055,8 +1066,12 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
             return Response(code=400, body={"error": "Invalid fqdn"})
 
         custom_storage = get_client(CustomStorage)
-        mgmt = get_client(FirewallManagement)
         candidates = _blocking_candidates(fqdn)
+
+        @functools.cache
+        def _mgmt():
+            # Created on first use: most names are decided without reading a rule group
+            return get_client(FirewallManagement)
 
         def _current_entry(item):
             # As this version deploys it: _sanitize_url_list adds *.domain for every plain domain
@@ -1105,7 +1120,8 @@ def simulate_policy(request: Request, _: dict, logger: Logger) -> Response:
             rule_group_ids = list(dict.fromkeys(r['rule_group_id'] for r in records if r.get('rule_group_id')))
             rule_groups = {}
             if rule_group_ids:
-                rule_groups, err = _get_by_ids(mgmt.get_rule_groups, rule_group_ids, 'id', "get_rule_groups", logger)
+                rule_groups, err = _get_by_ids(_mgmt().get_rule_groups, rule_group_ids, 'id', "get_rule_groups",
+                                               logger)
                 if err:
                     return None, f"Failed to read rule groups from Falcon: {err}"
             deployed = {rg_id for rg_id, rule_group in rule_groups.items() if _rule_group_deployed(rule_group)}
@@ -1237,7 +1253,9 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
         mgmt = get_client(FirewallManagement)
 
         # Listed once: the keys give the records to read, and the rule groups this app tracks (below)
-        listing = list_object_keys(custom_storage, "relationship", COLLECTION_RELATION_VER)
+        # Same limits as update and delete, so all three resolve legacy policies from the same keys
+        listing = list_object_keys(custom_storage, "relationship", COLLECTION_RELATION_VER,
+                                   page_size=RELATIONSHIP_PAGE_SIZE, max_pages=RELATIONSHIP_MAX_PAGES)
         if "error" in listing:
             return Response(code=500, body={"error": "Failed to read relationships"})
         pagination = listing["pagination"]
@@ -1258,8 +1276,6 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
         # rule group (same-name legacy policies are told apart by their rule group)
         unique_policies = {}
         for item in records:
-            if not isinstance(item, dict):
-                continue
             policy_name = item.get('policy_name')
             if not policy_name:
                 continue
@@ -1287,24 +1303,27 @@ def health_check(_request: Request, _: dict, logger: Logger) -> Response:
                 return Response(code=502, body={"error": f"Failed to read rule groups from Falcon: {err}"})
         # The rule groups this app tracks come from the key listing, as for update and delete: the key
         # of a record that could not be read still names its rule group. A truncated listing may
-        # leave out a tracked rule group that rules a candidate out
+        # leave out a tracked rule group that rules a candidate out, so only a policy that holds
+        # the stored rule group (which does not depend on the tracked ones) is resolved then
         tracked_rule_groups, tracked_error = _tracked_rule_groups(listing["keys"], records), None
         if pagination["truncated"]:
             tracked_error = f"Only the first {plural(pagination['returned'], 'relationship record')} could be listed"
         resolved, unresolved = {}, {}  # key -> policy_id, key -> why it could not be resolved
         for key, item in unique_policies.items():
-            if isinstance(key, tuple) and tracked_error and found_by_name.get(item['policy_name']):
-                resolved[key], unresolved[key] = None, f"{tracked_error}, so the policy could not be resolved"
-            elif isinstance(key, tuple):
-                platform = item.get('platform')
-                if platform not in PLATFORM_NAMES:
-                    platform = rule_group_platforms.get(item.get('rule_group_id'))
-                policy, unresolved[key] = _match_legacy_policy(
-                    found_by_name.get(item['policy_name'], []), legacy_containers, item.get('rule_group_id'),
-                    platform, item.get('host_group_id'), tracked_rule_groups)
-                resolved[key] = policy.get('id') if policy else None
-            else:
+            if not isinstance(key, tuple):
                 resolved[key] = key
+                continue
+            candidates = found_by_name.get(item['policy_name'], [])
+            platform = item.get('platform')
+            if platform not in PLATFORM_NAMES:
+                platform = rule_group_platforms.get(item.get('rule_group_id'))
+            policy, unresolved[key] = _match_legacy_policy(candidates, legacy_containers, item.get('rule_group_id'),
+                                                           platform, item.get('host_group_id'), tracked_rule_groups)
+            holds = policy and item.get('rule_group_id') in (
+                legacy_containers.get(policy.get('id')) or {}).get('rule_group_ids', [])
+            if tracked_error and candidates and not holds:
+                policy, unresolved[key] = None, f"{tracked_error}, so the policy could not be resolved"
+            resolved[key] = policy.get('id') if policy else None
 
         policy_ids = list(dict.fromkeys(pid for pid in resolved.values() if pid))
         policies_by_id, err = _get_by_ids(fw_policies.get_policies, policy_ids, 'id', "get_policies", logger)

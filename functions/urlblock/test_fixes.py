@@ -3,14 +3,12 @@
 
 import unittest
 from datetime import datetime, timezone
-from functools import partial
 from unittest.mock import MagicMock, call, patch
 
 from crowdstrike.foundry.function import Request, RequestParams
 
 import main  # noqa: F401  # pylint: disable=unused-import
 from app_utils import (
-    list_object_keys,
     category_key, relationship_key, validate_fqdn, _validate_falcon_response, _sanitize_url_list, plural,
 )
 from conftest import FakeStorage
@@ -564,11 +562,68 @@ class PolicyUpdateLegacyTestCase(PolicyChangeBase):
         self.assertIn(("delete_pol", "pol-legacy"), order)
 
     def test_update_legacy_without_platform_or_policy_is_rejected(self):
+        # neither the records, a policy, the rule group in Falcon nor the request give the platform
         self.make_legacy()
+        self.rule_group_platforms.clear()
         self.pol.query_combined_policies.return_value = falcon_ok([])
         resp = self.update(dict(self.update_body, platform=""))
         self.assertEqual(resp.code, 400)
         self.pol.create_policies.assert_not_called()
+
+    def test_update_legacy_whose_policy_is_gone_takes_the_platform_of_its_rule_group(self):
+        self.make_legacy()
+        self.rule_group_platforms["rg-old"] = "mac"
+        self.pol.query_combined_policies.return_value = falcon_ok([])
+        resp = self.update(dict(self.update_body, platform="windows"))  # the rule group's platform wins
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(self.pol.create_policies.call_args.kwargs["platform_name"], "Mac")
+        self.assertEqual(self.mgmt.create_rule_group.call_args.kwargs["platform"], "mac")
+        self.mgmt.get_rule_groups.assert_called_once_with(ids=["rg-old"])
+
+    def test_update_legacy_whose_policy_is_gone_uses_the_request_when_the_rule_group_has_no_platform(self):
+        self.make_legacy()
+        self.rule_group_platforms.clear()
+        self.pol.query_combined_policies.return_value = falcon_ok([])
+        resp = self.update(dict(self.update_body, platform="linux"))
+        self.assertEqual(resp.code, 200)
+        self.assertEqual(self.pol.create_policies.call_args.kwargs["platform_name"], "Linux")
+
+    def test_update_legacy_whose_policy_is_gone_changes_nothing_when_the_rule_group_cannot_be_read(self):
+        self.make_legacy()
+        self.pol.query_combined_policies.return_value = falcon_ok([])
+        self.mgmt.get_rule_groups.side_effect = lambda ids: {"status_code": 500}
+        resp = self.update(dict(self.update_body, platform="windows"))
+        self.assertEqual(resp.code, 502)
+        self.assertIn("Failed to read rule group rg-old from Falcon", resp.body["error"])
+        self.assertIn("Nothing was changed", resp.body["error"])
+        self.pol.create_policies.assert_not_called()
+        self.mgmt.create_rule_group.assert_not_called()
+
+    def test_update_legacy_policy_holding_the_rule_group_needs_no_rule_group_read(self):
+        # the only candidate holding rg-old is its policy, and gives the platform
+        self.make_legacy()
+        self.pol.query_combined_policies.return_value = falcon_ok([dict(self.legacy_policy)])
+        self.assertEqual(self.update(dict(self.update_body, platform="")).code, 200)
+        self.mgmt.get_rule_groups.assert_not_called()
+        self.assertEqual(self.pol.create_policies.call_args.kwargs["platform_name"], "Windows")
+
+    def test_legacy_retry_completes_the_platform_with_the_stored_one(self):
+        # an earlier attempt stored policy_id and platform on old1 only: old2 gets both
+        self.make_legacy()
+        self.rel()["old1"].update(policy_id="pol-legacy", platform="mac")
+        self.assertTrue(policies._store_policy_ref(  # pylint: disable=protected-access
+            [dict(self.rel()["old1"], _key="old1"), dict(self.rel()["old2"], _key="old2")],
+            dict(self.legacy_policy), self.store, self.logger))
+        self.assertEqual((self.rel()["old2"]["policy_id"], self.rel()["old2"]["platform"]), ("pol-legacy", "mac"))
+        self.assertEqual(self.rel()["old1"]["platform"], "mac")
+
+    def test_legacy_retry_completes_the_platform_with_the_policy_one_when_none_is_stored(self):
+        self.make_legacy()
+        self.rel()["old1"]["policy_id"] = "pol-legacy"
+        self.assertTrue(policies._store_policy_ref(  # pylint: disable=protected-access
+            [dict(self.rel()["old1"], _key="old1"), dict(self.rel()["old2"], _key="old2")],
+            dict(self.legacy_policy), self.store, self.logger))
+        self.assertEqual([self.rel()[k].get("platform") for k in ("old1", "old2")], ["windows", "windows"])
 
     def test_update_without_existing_policy_uses_final_name(self):
         self.make_legacy()
@@ -878,12 +933,31 @@ class PolicyLegacyFallbackTestCase(PolicyChangeBase):
         # it might name a rule group that rules a candidate out
         self.policies_named_p("pol-legacy")
         self.containers({"pol-legacy": []})
-        with patch.object(policies, "list_object_keys", partial(list_object_keys, page_size=2, max_pages=1)):
+        with patch.object(policies, "RELATIONSHIP_PAGE_SIZE", 2), patch.object(policies, "RELATIONSHIP_MAX_PAGES", 1):
             health = policies.health_check(req(), None, self.logger).body
         entry = next(p for p in health["policies"] if p["rule_group_id"] == "rg-old")
         self.assertEqual((entry["policy_id"], entry["issues"]), (None, [
             "Only the first 2 relationship records could be listed, so the policy could not be resolved"]))
         self.assertEqual(health["incomplete"], True)
+
+    def test_health_check_resolves_a_policy_holding_the_rule_group_when_the_keys_are_truncated(self):
+        # holding the stored rule group does not depend on the tracked rule groups the listing left out
+        self.policies_named_p("pol-legacy")
+        self.containers({"pol-legacy": ["rg-old"]})
+        self.pol.get_policies.side_effect = lambda ids: falcon_ok(
+            [{"id": i, "enabled": True, "groups": [{"id": "hg1"}]} for i in ids])
+        with patch.object(policies, "RELATIONSHIP_PAGE_SIZE", 2), patch.object(policies, "RELATIONSHIP_MAX_PAGES", 1):
+            health = policies.health_check(req(), None, self.logger).body
+        entry = next(p for p in health["policies"] if p["rule_group_id"] == "rg-old")
+        self.assertEqual(entry["policy_id"], "pol-legacy")
+        self.assertNotIn("could not be resolved", " ".join(entry["issues"]))
+        self.assertEqual(health["incomplete"], True)
+
+    def test_health_check_lists_as_many_relationship_keys_as_update_and_delete(self):
+        with patch.object(policies, "list_object_keys", wraps=policies.list_object_keys) as listing:
+            policies.health_check(req(), None, self.logger)
+        self.assertEqual((listing.call_args.kwargs["page_size"], listing.call_args.kwargs["max_pages"]),
+                         (policies.RELATIONSHIP_PAGE_SIZE, policies.RELATIONSHIP_MAX_PAGES))
 
     def test_several_policies_with_the_name_on_the_host_group_change_nothing(self):
         self.policies_named_p("pol-a", "pol-b")
@@ -1611,7 +1685,7 @@ class PolicyQueryTestCase(PolicyBase):
         self.pol.get_policies.side_effect = lambda ids: falcon_ok([{"id": i, "enabled": True, "groups": [1]} for i in ids])
         self.mgmt.get_policy_containers.side_effect = lambda ids: falcon_ok(
             [{"policy_id": i, "enforce": True, "rule_group_ids": ["r"]} for i in ids])
-        with patch.object(policies, "list_object_keys", partial(list_object_keys, page_size=2, max_pages=1)):
+        with patch.object(policies, "RELATIONSHIP_PAGE_SIZE", 2), patch.object(policies, "RELATIONSHIP_MAX_PAGES", 1):
             resp = policies.health_check(req(), None, self.logger)
         self.assertEqual(resp.code, 200)
         self.assertEqual([p["policy_id"] for p in resp.body["policies"]], ["p-a", "p-b"])
