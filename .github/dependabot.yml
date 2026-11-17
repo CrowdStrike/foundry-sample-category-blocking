@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: pip
-    directory: "/functions/urlblock/"
+    directories:
+      - "/.github"
+      - "/functions/urlblock/"
     schedule:
       interval: "weekly"
       day: "monday"
