@@ -309,6 +309,11 @@ class SimulatePolicyTestCase(HandlerTestCase):
         self.assertTrue(resp.body["found"])
         self.assertEqual(resp.body["category"], "Search")
 
+    def test_falcon_client_is_only_created_when_a_rule_group_is_read(self):
+        # google.com is blocked the same way raw and sanitized: no rule group is read
+        self.simulate("google.com")
+        self.assertNotIn("FirewallManagement", [c.args[0].__name__ for c in self.get_client.call_args_list])
+
     def test_subdomain_matches_parent_wildcard(self):
         resp = self.simulate("Mail.Google.com")
         self.assertTrue(resp.body["found"])
